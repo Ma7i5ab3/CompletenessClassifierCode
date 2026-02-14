@@ -7,13 +7,13 @@ from sklearn.svm import SVC
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier, AdaBoostClassifier
 import pandas as pd
+from Classification.deep_models_train import TorchTabularClassifier
 
 
 def classification(X, y, classifier, param):
 
     X = StandardScaler().fit_transform(X)
     X = np.nan_to_num(X)
-    clf = DecisionTreeClassifier()
     if classifier == "DecisionTree":
         clf = DecisionTreeClassifier(max_depth=int(param), random_state=0)
     elif classifier == "LogisticRegression":
@@ -26,6 +26,30 @@ def classification(X, y, classifier, param):
         clf = AdaBoostClassifier(n_estimators=int(param), random_state=0)
     elif classifier == "SVC":
         clf = SVC(max_iter=10000, C=param, random_state=0)
+    elif classifier == "MLP":
+        clf = TorchTabularClassifier(
+            model_name="MLP",
+            learning_rate=float(param),
+            max_epochs=120,
+            patience=12,
+            random_state=0,
+        )
+    elif classifier == "TabNet":
+        clf = TorchTabularClassifier(
+            model_name="TabNet",
+            learning_rate=float(param),
+            max_epochs=120,
+            patience=12,
+            random_state=0,
+        )
+    elif classifier == "FTTransformer":
+        clf = TorchTabularClassifier(
+            model_name="FTTransformer",
+            learning_rate=float(param),
+            max_epochs=120,
+            patience=12,
+            random_state=0,
+        )
 
     # print("Training for "+classifier+"...")
     cv = ShuffleSplit(n_splits=4, test_size=0.3, random_state=0)

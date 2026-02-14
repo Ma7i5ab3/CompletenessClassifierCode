@@ -27,6 +27,10 @@ def search_parameters_classification():
     rf_params = [5,10,15,20,25]
     ada_params = [30,40,50,60,70]
     svc_params = [0.001, 0.01, 0.1, 1, 10]
+    # Deep models: tune learning rate, while max epochs is fixed in the trainer
+    mlp_params = [1e-4, 5e-4, 1e-3, 5e-3, 1e-2, 5e-2]
+    tabnet_params = [1e-4, 5e-4, 1e-3, 5e-3, 1e-2, 5e-2]
+    ft_params = [1e-4, 5e-4, 1e-3, 5e-3, 1e-2, 5e-2]
 
     classif_methods = file_classif_methods.readlines()
     classif_methods = [line.strip('\n\r') for line in classif_methods]
@@ -44,6 +48,12 @@ def search_parameters_classification():
             hyp_list = rf_params
         elif classif_method == "AdaBoost":
             hyp_list = ada_params
+        elif classif_method == "MLP":
+            hyp_list = mlp_params
+        elif classif_method == "TabNet":
+            hyp_list = tabnet_params
+        elif classif_method == "FTTransformer":
+            hyp_list = ft_params
         else:
             hyp_list = svc_params
         start = time.time()

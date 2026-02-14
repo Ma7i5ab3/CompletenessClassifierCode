@@ -10,6 +10,8 @@ from multiprocessing import Pool
 from utils import dirty_single_column, encoding_categorical_variables
 import pandas as pd
 import warnings
+import time
+import traceback
 warnings.filterwarnings("ignore")
 # set PyTensor flags cxx to an empty string.
 import os
@@ -20,10 +22,10 @@ file_datasets = open("Datasets/dataset_names.txt", "r")
 file_ml_methods = open("Classification/classification_methods.txt", "r")
 
 ## =========== NEW EXPERIMENTS WITH NEW IMPUTATION METHODS ============== ##
-# file_imp_methods_num = open("Imputation/methods_numerical_column.txt", "r")
-# file_imp_methods_cat = open("Imputation/methods_categorical_column.txt", "r")
-file_imp_methods_num = open("Imputation/new_methods_numerical_column.txt", "r")
-file_imp_methods_cat = open("Imputation/new_methods_categorical_column.txt", "r")
+file_imp_methods_num = open("Imputation/methods_numerical_column.txt", "r")
+file_imp_methods_cat = open("Imputation/methods_categorical_column.txt", "r")
+# file_imp_methods_num = open("Imputation/new_methods_numerical_column.txt", "r")
+# file_imp_methods_cat = open("Imputation/new_methods_categorical_column.txt", "r")
 
 datasets = file_datasets.readlines()
  # removing adult dataset for now
@@ -39,7 +41,8 @@ imp_methods_cat = [line.strip('\n\r') for line in imp_methods_cat]
 # this dataframe contains the value of the parameters to train the ml algorithms
 df_hyper = pd.read_csv("Hyperparameter_tuning/hyperparameters.csv")
 
-done_ds = ['abalone', 'BachChoralHarmony', 'bank', 'cancer', 'car', 'consumer', 'dataset_188_kropt', 'default of credit card clients', 'diabetic', 'drug', 'electricity-normalized', 'fried', 'frogs', 'german']
+# done_ds = ['abalone', 'BachChoralHarmony', 'bank', 'cancer', 'car', 'consumer', 'dataset_188_kropt', 'default of credit card clients', 'diabetic', 'drug', 'electricity-normalized', 'fried', 'frogs', 'german']
+done_ds = []
 datasets = [ds for ds in datasets if ds not in done_ds] 
 # generate seeds for the different parallel jobs
 def generate_seed(n_seed, n_elements):
@@ -52,8 +55,17 @@ def generate_seed(n_seed, n_elements):
         seed = []
     return seeds
 
+
+def _procedure_for_pool(args):
+    """
+    Helper to execute one parallel job and keep track of its original index.
+    """
+    idx, df, dataset, class_name, column, single_seed = args
+    return idx, procedure(df, dataset, class_name, column, single_seed)
+
+
 # execute the experiments in parallel
-def parallel_exec(df, dataset, class_name, column, n_parallel_jobs, n_instances_tot, file_seeds):
+def  parallel_exec(df, dataset, class_name, column, n_parallel_jobs, n_instances_tot, file_seeds):
     n_instances_x_job = int(n_instances_tot / n_parallel_jobs)
     seed = generate_seed(n_parallel_jobs, n_instances_x_job)
 
@@ -65,13 +77,61 @@ def parallel_exec(df, dataset, class_name, column, n_parallel_jobs, n_instances_
     new_line_seeds = new_line_seeds[:-1] + "\n"
     file_seeds.write(new_line_seeds)
 
-    # create the iterator for the parallel execution
-    itr = zip(repeat(df), repeat(dataset), repeat(class_name), repeat(column), seed)
+    tasks = [
+        (idx, df, dataset, class_name, column, single_seed)
+        for idx, single_seed in enumerate(seed)
+    ]
+    results = [None] * len(tasks)
+    total_jobs = len(tasks)
+    progress_bar_width = 30
+
+    print(f"Starting parallel jobs for dataset='{dataset}', column='{column}'")
+    print(f"Jobs progress [{'-' * progress_bar_width}] 0/{total_jobs}")
 
     # starts the parallel experiments on the column
-    with (Pool(processes=n_parallel_jobs) as pool):
-        results = pool.starmap(procedure, itr)
-        return results
+    with Pool(processes=n_parallel_jobs) as pool:
+        for completed_jobs, (idx, job_result) in enumerate(
+            pool.imap_unordered(_procedure_for_pool, tasks),
+            start=1
+        ):
+            results[idx] = job_result
+            filled = int(progress_bar_width * completed_jobs / total_jobs)
+            bar = "#" * filled + "-" * (progress_bar_width - filled)
+            print(f"Jobs progress [{bar}] {completed_jobs}/{total_jobs}", flush=True)
+
+    return results
+
+
+def sequential_exec(df, dataset, class_name, column, n_parallel_jobs, n_instances_tot, file_seeds):
+    """
+    Execute the same jobs as parallel_exec, but sequentially.
+    The function keeps the same interface and output structure.
+    """
+    n_instances_x_job = int(n_instances_tot / n_parallel_jobs)
+    seed = generate_seed(n_parallel_jobs, n_instances_x_job)
+
+    # write the seeds in the seeds file (same format as parallel_exec)
+    flat_seeds = [x[0] for x in seed]
+    new_line_seeds = dataset + "," + column + ","
+    for s in flat_seeds:
+        new_line_seeds += str(s) + ","
+    new_line_seeds = new_line_seeds[:-1] + "\n"
+    file_seeds.write(new_line_seeds)
+
+    results = []
+    total_jobs = len(seed)
+    progress_bar_width = 30
+
+    print(f"Starting sequential jobs for dataset='{dataset}', column='{column}'")
+    print(f"Jobs progress [{'-' * progress_bar_width}] 0/{total_jobs}")
+
+    for completed_jobs, single_seed in enumerate(seed, start=1):
+        results.append(procedure(df, dataset, class_name, column, single_seed))
+        filled = int(progress_bar_width * completed_jobs / total_jobs)
+        bar = "#" * filled + "-" * (progress_bar_width - filled)
+        print(f"Jobs progress [{bar}] {completed_jobs}/{total_jobs}", flush=True)
+
+    return results
 
 
 # procedure for the experiments on a specific column
@@ -86,21 +146,22 @@ def procedure(df, dataset, class_name, column, seed):
     results_experiment = dict()
 
     column_profile = ()
-    
+     
     for i, df_missing in enumerate(df_list_no_class):
         column_type = df[column].dtype
 
         imputed_datasets = []
-        # print("Starting imputation on first dirty dataset ", i)
-        if column_type in ["int64", "float64"]:
+        print("Starting imputation on first dirty dataset ", i)
+        if column_type in ["int64", "float64", "int32"]:
 
             # Profile extraction for numerical column with missing values
             column_profile = get_features_num(df_missing, column)
 
             # impute the numerical column with all the imputation methods
             for imp_method in imp_methods_num:
-                print("[", imp_method, "]")
+                # print("[", imp_method, "]")
                 current_df = df_missing.copy()
+                column_type = current_df[column].dtype
                 imputed_df = impute_missing_column(current_df, imp_method,
                                                 column)
                 imputed_df = encoding_categorical_variables(imputed_df)
@@ -186,35 +247,35 @@ def main(reduced_df=False):
     print("ML methods: ", ml_methods)
 
     path_datasets = "Datasets/CSV/"
-    new_exp_path = "NewExp/"
+    new_exp_path = "DeepLearningExps/"
     # sempre multipli
-    n_instances_tot = 8
-    n_parallel_jobs = 8
+    n_instances_tot = 1
+    n_parallel_jobs = 1
 
     # Opening file to save the results (in the new experiments folder)
     files_numerical = []
     files_categorical = []
     for i in range(n_parallel_jobs):
         file_num = open(f"{new_exp_path}experiment_{i+1}_numerical.csv","w")
-        file_num.write(
-            "name,column_name,n_tuples,missing_perc,uniqueness," +
-            "min,max,mean,median,std,skewness,kurtosis,mad," +
-            "iqr,p_min,p_max,k_min,k_max,s_min,s_max,entropy," +
-            "density,ml_algorithm,impute_standard,impute_mean," +
-            "impute_median,impute_random,impute_knn,impute_mice," +
-            "impute_linear_regression,impute_random_forest,impute_cmeans\n"
+        num_header_prefix = (
+            "name,column_name,n_tuples,missing_perc,uniqueness,"
+            "min,max,mean,median,std,skewness,kurtosis,mad,"
+            "iqr,p_min,p_max,k_min,k_max,s_min,s_max,entropy,"
+            "density,ml_algorithm"
         )
+        num_header = num_header_prefix + "," + ",".join(imp_methods_num) + "\n"
+        file_num.write(num_header)
         print("Numerical file header written.")
         files_numerical.append(file_num)
 
         file_cat = open(f"{new_exp_path}experiment_{i+1}_categorical.csv","w")
-        file_cat.write(
-            "name,column_name,n_tuples,missing_perc,constancy,imbalance," +
-            "uniqueness,unalikeability,entropy,density,mean_char,std_char,skewness_char," +
-            "kurtosis_char,min_char,max_char,ml_method,impute_standard," +
-            "impute_mode,impute_random,impute_knn,impute_mice,impute_logistic_regression," +
-            "impute_random_forest,impute_kproto\n"
+        cat_header_prefix = (
+            "name,column_name,n_tuples,missing_perc,constancy,imbalance,"
+            "uniqueness,unalikeability,entropy,density,mean_char,std_char,skewness_char,"
+            "kurtosis_char,min_char,max_char,ml_method"
         )
+        cat_header = cat_header_prefix + "," + ",".join(imp_methods_cat) + "\n"
+        file_cat.write(cat_header)
         print("Categorical file header written.")
         files_categorical.append(file_cat)
 
@@ -242,6 +303,10 @@ def main(reduced_df=False):
         df = get_dataset(path_datasets,dataset + ".csv")
         class_name = df.columns[-1]
 
+        #Convert 'str' dtype to 'object' for categorical columns
+        str_columns = df.select_dtypes(include=['str']).columns
+        df[str_columns] = df[str_columns].astype(object)
+
         # feature selection
         # df_fs, _, _, _, _ = feature_selection_univariate(df, class_name, perc_num=50, perc_cat=60)
         try:
@@ -255,43 +320,53 @@ def main(reduced_df=False):
         columns.remove(class_name)
         print("Columns selected after removing correlated features: ", columns)
         for column in columns:
-            try:
-                print("ANALYZING ", column)
-                if not reduced_df:
-                    # print("Using full dataset for experiments.")
-                    experiments = parallel_exec(df, dataset, class_name, column, n_parallel_jobs, n_instances_tot, file_seeds)
-                else:
-                    # print("Using reduced dataset for experiments.")
-                    experiments = parallel_exec(df_fs, dataset, class_name, column, n_parallel_jobs, n_instances_tot, file_seeds)
-                    # print("Experiments on column ", column, " completed.")
-                    # print("Experiments results: ", experiments)
-
-                # write the results of the different experiments in the corresponding files
-                for i, experiment in enumerate(experiments):
-                    if df[column].dtype in ["int64","float64"]:
-                        print("Writing results on numerical file: ", files_numerical[i].name)
-                        try:
-                            write_file(dataset, column, experiment, files_numerical[i])
-                            print("Write completed.")
-                        except Exception as e:
-                            print(f"Error writing to numerical file {files_numerical[i].name}: {e}")
+            if column == 'Sex':
+                try:
+                    print("ANALYZING ", column)
+                    if not reduced_df:
+                        # print("Using full dataset for experiments.")
+                        # experiments = parallel_exec(df, dataset, class_name, column, n_parallel_jobs, n_instances_tot, file_seeds)
+                        experiments = sequential_exec(df, dataset, class_name, column, n_parallel_jobs, n_instances_tot, file_seeds)
                     else:
-                        print("Writing results on categorical file: ", files_categorical[i].name)
-                        try:
-                            write_file(dataset, column, experiment, files_categorical[i])
-                            print("Write completed.")
-                        except Exception as e:
-                            print(f"Error writing to categorical file {files_categorical[i].name}: {e}")
-            except Exception as e:
-                print(f"Error in main loop for dataset {dataset}, column {column}: {e}")
-                errors.append((dataset, column, str(e)))
-                continue
-        
+                        # print("Using reduced dataset for experiments.")
+                        # experiments = parallel_exec(df_fs, dataset, class_name, column, n_parallel_jobs, n_instances_tot, file_seeds)
+                        experiments = sequential_exec(df, dataset, class_name, column, n_parallel_jobs, n_instances_tot, file_seeds)
+                        # print("Experiments on column ", column, " completed.")
+                        # print("Experiments results: ", experiments)
+
+                    # write the results of the different experiments in the corresponding files
+                    for i, experiment in enumerate(experiments):
+                        if df[column].dtype in ["int64","float64"]:
+                            print("Writing results on numerical file: ", files_numerical[i].name)
+                            try:
+                                write_file(dataset, column, experiment, files_numerical[i])
+                                print("Write completed.")
+                            except Exception as e:
+                                print(f"ERROR writing to numerical file {files_numerical[i].name}: {e}")
+                        else:
+                            print("Writing results on categorical file: ", files_categorical[i].name)
+                            try:
+                                write_file(dataset, column, experiment, files_categorical[i])
+                                print("Write completed.")
+                            except Exception as e:
+                                print(f"ERROR writing to categorical file {files_categorical[i].name}: {e}")
+                except Exception as e:
+                    tb_last = traceback.extract_tb(e.__traceback__)[-1]
+                    error_location = f"{tb_last.filename}:{tb_last.lineno} ({tb_last.name})"
+                    print(
+                        f"ERROR in main loop for dataset {dataset}, column {column}: {e} "
+                        f"[at {error_location}]"
+                    )
+                    time.sleep(10)  # small delay before continuing with the next column
+                    errors.append((dataset, column, str(e), error_location))
+            
     # print errors if any
     if errors:
         with open(f"{new_exp_path}errors_log.txt", "w") as error_file:
             for err in errors:
-                error_file.write(f"Dataset: {err[0]}, Column: {err[1]}, Error: {err[2]}\n")
+                error_file.write(
+                    f"Dataset: {err[0]}, Column: {err[1]}, Error: {err[2]}, Location: {err[3]}\n"
+                )
         print(f"Errors logged in {new_exp_path}errors_log.txt")
 
     # closing files

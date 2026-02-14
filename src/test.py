@@ -44,11 +44,58 @@ class impute_expectation_maximization():
 
     def fit(self, df, missing_column):
         X = df.copy()
-        col = X[missing_column]
-        plugin = Imputers().get("EM")
-        col = plugin.fit_transform(col)
-        df[missing_column] = col
-        return df
+        if missing_column is None or missing_column not in X.columns:
+            return X
+
+        if not pd.api.types.is_numeric_dtype(X[missing_column]):
+            return X
+
+        missing_mask = X[missing_column].isna()
+        if not missing_mask.any():
+            return X
+
+        # If the target column is fully missing there is no signal to estimate from.
+        if X[missing_column].notna().sum() == 0:
+            X.loc[missing_mask, missing_column] = 0.0
+            return X
+
+        # HyperImpute EM expects a 2D numeric table; passing a Series can trigger
+        # scalar/0d-array paths with newer NumPy versions.
+        numeric_columns = list(X.select_dtypes(include=[np.number]).columns)
+        if missing_column not in numeric_columns:
+            return X
+
+        # Univariate EM is unstable in the HyperImpute plugin implementation.
+        if len(numeric_columns) == 1:
+            fill_value = X[missing_column].mean()
+            X.loc[missing_mask, missing_column] = fill_value
+            return X
+
+        numeric_df = X[numeric_columns].astype(float)
+        em_fallback = IterativeImputer(
+            estimator=BayesianRidge(),
+            random_state=0,
+            max_iter=25,
+        )
+
+        # HyperImpute EM currently breaks on NumPy 2.x for some inputs.
+        numpy_major = int(str(np.__version__).split(".")[0])
+        if numpy_major < 2:
+            plugin = Imputers().get("EM")
+            try:
+                imputed_numeric = plugin.fit_transform(numeric_df)
+            except Exception:
+                imputed_numeric = em_fallback.fit_transform(numeric_df)
+        else:
+            imputed_numeric = em_fallback.fit_transform(numeric_df)
+
+        if not isinstance(imputed_numeric, pd.DataFrame):
+            imputed_numeric = pd.DataFrame(
+                imputed_numeric, index=X.index, columns=numeric_columns
+            )
+        X.loc[missing_mask, missing_column] = imputed_numeric.loc[missing_mask, missing_column]
+        X[missing_column] = X[missing_column].fillna(X[missing_column].mean())
+        return X
 
 # Only numerical features
 class impute_soft_imputer():
@@ -566,9 +613,6 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
 
 
 

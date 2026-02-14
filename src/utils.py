@@ -77,6 +77,8 @@ def dirty_single_column(dataset, column_name, name_class, seed):
         # potrei fare qua il cambio da column a dataset
         df_dirt_complete = dataset.copy()
         df_dirt_complete[column_name] = df_dirt[column_name]
+        column_type = df_dirt_complete[column_name].dtype
+        print(f"Dirty Column: {column_name} Column type: {column_type}")
         df_list.append(df_dirt_complete)
         # print("saved {}-completeness{}%".format(column_name, round((1 - p) * 100)))
     return df_list

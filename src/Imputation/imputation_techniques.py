@@ -12,6 +12,7 @@ from skfuzzy import cmeans, cmeans_predict
 from sklearn.neural_network import MLPClassifier, MLPRegressor
 from sklearn.preprocessing import StandardScaler
 from sklearn.preprocessing import OrdinalEncoder
+from sklearn.preprocessing import LabelEncoder
 from utils import encoding_categorical_variables, restore_nans
 from sklearn.neighbors import KNeighborsClassifier
 
@@ -172,10 +173,13 @@ class impute_mice:
             X[missing_column] = target
             columns.append(missing_column)
             # encode the missing column only for avoiding runtime errors in the IterativeImputer object
-            oe = OrdinalEncoder(handle_unknown='use_encoded_value',
-                                unknown_value=np.nan)
-            oe.fit(X[missing_column].values[:,None])
-            X[missing_column] = oe.transform(X[missing_column].values[:,None])
+            oe = OrdinalEncoder(
+                handle_unknown='use_encoded_value',
+                unknown_value=np.nan
+            )
+            missing_col_values = X[missing_column].to_numpy(copy=True).reshape(-1, 1)
+            oe.fit(missing_col_values)
+            X[missing_column] = oe.transform(missing_col_values).ravel()
 
             imputer = IterativeImputer(
                 estimator=estimator, max_iter=100,
@@ -183,7 +187,8 @@ class impute_mice:
             X = pd.DataFrame(imputer.fit_transform(X), columns=columns)
             columns.remove(missing_column)
             X[columns] = scaler.inverse_transform(X[columns])
-            X[missing_column] = oe.inverse_transform(X[missing_column].values[:,None])
+            encoded_values = X[missing_column].to_numpy(copy=True).reshape(-1, 1)
+            X[missing_column] = oe.inverse_transform(encoded_values).ravel()
             return X
 
 class impute_random:
@@ -389,11 +394,58 @@ class impute_expectation_maximization():
 
     def fit(self, df, missing_column):
         X = df.copy()
-        col = X[missing_column]
-        plugin = Imputers().get("EM")
-        col = plugin.fit_transform(col)
-        df[missing_column] = col
-        return df
+        if missing_column is None or missing_column not in X.columns:
+            return X
+
+        if not pd.api.types.is_numeric_dtype(X[missing_column]):
+            return X
+
+        missing_mask = X[missing_column].isna()
+        if not missing_mask.any():
+            return X
+
+        # If the target column is fully missing there is no signal to estimate from.
+        if X[missing_column].notna().sum() == 0:
+            X.loc[missing_mask, missing_column] = 0.0
+            return X
+
+        # HyperImpute EM expects a 2D numeric table; passing a Series can trigger
+        # scalar/0d-array paths with newer NumPy versions.
+        numeric_columns = list(X.select_dtypes(include=[np.number]).columns)
+        if missing_column not in numeric_columns:
+            return X
+
+        # Univariate EM is unstable in the HyperImpute plugin implementation.
+        if len(numeric_columns) == 1:
+            fill_value = X[missing_column].mean()
+            X.loc[missing_mask, missing_column] = fill_value
+            return X
+
+        numeric_df = X[numeric_columns].astype(float)
+        em_fallback = IterativeImputer(
+            estimator=BayesianRidge(),
+            random_state=0,
+            max_iter=25,
+        )
+
+        # HyperImpute EM currently breaks on NumPy 2.x for some inputs.
+        numpy_major = int(str(np.__version__).split(".")[0])
+        if numpy_major < 2:
+            plugin = Imputers().get("EM")
+            try:
+                imputed_numeric = plugin.fit_transform(numeric_df)
+            except Exception:
+                imputed_numeric = em_fallback.fit_transform(numeric_df)
+        else:
+            imputed_numeric = em_fallback.fit_transform(numeric_df)
+
+        if not isinstance(imputed_numeric, pd.DataFrame):
+            imputed_numeric = pd.DataFrame(
+                imputed_numeric, index=X.index, columns=numeric_columns
+            )
+        X.loc[missing_mask, missing_column] = imputed_numeric.loc[missing_mask, missing_column]
+        X[missing_column] = X[missing_column].fillna(X[missing_column].mean())
+        return X
 
 # Only numerical features
 class impute_soft_imputer():
@@ -403,14 +455,33 @@ class impute_soft_imputer():
     def fit(self, df):
         # print("Inside soft imputer")
         # X_incomplete_normalized = BiScaler().fit_transform(df)
-        df = encoding_categorical_variables(df)
-        columns = list(df.columns)
-        # df = np.array(df).reshape(-1,1)
+        original_df = df.copy()
+        encoded_df = encoding_categorical_variables(df)
+        columns = list(encoded_df.columns)
+        index = encoded_df.index
+
         imputer = SoftImpute(verbose=False)
-        df = imputer.fit_transform(df)
-        df = pd.DataFrame(df)
-        df.columns = columns
-        return df
+        try:
+            imputed_values = imputer.fit_transform(encoded_df)
+        except TypeError as exc:
+            # fancyimpute may still call check_array(force_all_finite=...) which is
+            # unsupported in newer sklearn versions. Fall back to a stable imputer.
+            if "force_all_finite" not in str(exc):
+                raise
+            fallback_imputer = IterativeImputer(
+                estimator=BayesianRidge(),
+                random_state=0,
+                max_iter=25,
+            )
+            imputed_values = fallback_imputer.fit_transform(encoded_df)
+
+        imputed_df = pd.DataFrame(imputed_values, columns=columns, index=index)
+
+        # Keep original columns and order if encoding did not expand features.
+        if len(imputed_df.columns) == len(original_df.columns):
+            imputed_df.columns = original_df.columns
+
+        return imputed_df
 
 # Works with both types of features
 class impute_xgb_imputer():
@@ -767,6 +838,8 @@ class impute_mlp():
             target = X[missing_column]
 
             features = encoding_categorical_variables(features)
+            # Ensure sklearn receives a numeric matrix (no object/string dtypes).
+            features = features.apply(pd.to_numeric, errors="coerce").fillna(0.0)
             X_train = features.loc[target.notnull()]
             y_train = target.loc[target.notnull()]
             X_predict = features.loc[target.isnull()]
@@ -786,6 +859,24 @@ class impute_mlp():
             if len(X_predict) == 0:
                 return df
 
+            if len(X_train) == 0:
+                return df
+
+            X_train_np = X_train.to_numpy(dtype=np.float64, copy=True)
+            X_predict_np = X_predict.to_numpy(dtype=np.float64, copy=True)
+
+            # Encode class labels to numeric to avoid object-dtype issues.
+            label_encoder = LabelEncoder()
+            y_train_encoded = label_encoder.fit_transform(y_train.astype(str))
+
+            if len(label_encoder.classes_) < 2:
+                predicted_values = np.repeat(label_encoder.classes_[0], len(X_predict_np))
+            else:
+                # Fit the model and predict missing values
+                mlp_estimator.fit(X_train_np, y_train_encoded)
+                predicted_encoded = mlp_estimator.predict(X_predict_np).astype(int)
+                predicted_values = label_encoder.inverse_transform(predicted_encoded)
+
             # X_train = train_data.drop(columns=[missing_column])
             # y_train = train_data[missing_column]
 
@@ -799,10 +890,6 @@ class impute_mlp():
 
             # X_train = encoding_categorical_variables(X_train)   
             # X_predict = encoding_categorical_variables(X_predict)
-
-            # Fit the model and predict missing values
-            mlp_estimator.fit(X_train, y_train)
-            predicted_values = mlp_estimator.predict(X_predict)
 
             # Fill in the missing values
             df.loc[df[missing_column].isnull(), missing_column] = predicted_values
@@ -890,5 +977,3 @@ def impute_missing_column(df, method, missing_column):
     return imputated_df
 
     
-
-
