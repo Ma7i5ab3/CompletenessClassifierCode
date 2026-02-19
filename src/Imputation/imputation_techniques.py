@@ -487,29 +487,128 @@ class impute_soft_imputer():
 class impute_xgb_imputer():
     def __init__(self):
         self.name = 'XGB Imputer'
+        self._cat_maps = {}  # {col: [categories...]}
 
-    def fit(self, df, column_missing, categorical_features_index, replace_values_back=False):
+    def _fallback_single_column_fill(self, df, column_missing):
+        df_filled = df.copy()
+        if pd.api.types.is_numeric_dtype(df_filled[column_missing]):
+            fill_value = df_filled[column_missing].mean()
+        else:
+            mode_values = df_filled[column_missing].mode(dropna=True)
+            fill_value = mode_values.iloc[0] if len(mode_values) > 0 else "__missing__"
+        df_filled[column_missing] = df_filled[column_missing].fillna(fill_value)
+        return df_filled
+
+    def _remap_categorical_indices(self, columns, column_missing, categorical_features_index):
+        missing_idx = columns.get_loc(column_missing)
+        predictor_cat_indices = []
+        for idx in categorical_features_index:
+            if idx < 0 or idx >= len(columns):
+                continue
+            if idx == missing_idx:
+                continue
+            predictor_cat_indices.append(idx if idx < missing_idx else idx - 1)
+        return sorted(set(predictor_cat_indices))
+    
+    '''def _encode_categoricals(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Encode ALL object/bool columns into float codes (NaN preserved).
+        Store mapping so we can restore original labels after imputation.
+        """
+        df_enc = df.copy()
+        self._cat_maps = {}
+
+        cat_cols = df_enc.select_dtypes(include=["object", "bool"]).columns
+        for col in cat_cols:
+            ser = df_enc[col].astype("category")
+            cats = list(ser.cat.categories)     # original labels
+            codes = ser.cat.codes.astype("float")  # -1 represents NaN
+            codes[codes == -1] = np.nan
+
+            df_enc[col] = codes
+            self._cat_maps[col] = cats
+
+        return df_enc'''
+
+    '''def _decode_categoricals(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Decode previously-encoded categorical columns back to original labels.
+        """
+        df_dec = df.copy()
+
+        for col, cats in self._cat_maps.items():
+            if col not in df_dec.columns:
+                continue
+            if len(cats) == 0:
+                continue
+
+            vals = pd.to_numeric(df_dec[col], errors="coerce")
+            na_mask = vals.isna()
+
+            # XGB may output float-ish values; bring back to valid integer codes
+            codes = vals.round()
+            codes = codes.clip(lower=0, upper=len(cats) - 1)
+
+            codes_int = codes.astype("Int64")  # keeps <NA>
+            restored = pd.Series(
+                pd.Categorical.from_codes(
+                    codes_int.fillna(0).astype(int),
+                    categories=cats
+                ),
+                index=df_dec.index
+            ).astype("object")
+
+            restored[na_mask] = np.nan
+            df_dec[col] = restored
+
+        return df_dec'''
+
+    def fit(self, df, column_missing, categorical_features_index, replace_values_back=True):
         columns = df.columns
+        if column_missing not in columns:
+            print(f"Warning: Missing column '{column_missing}' not found in DataFrame. Returning original DataFrame.")
+            return df
+        if len(columns) <= 1:
+            print("Warning: DataFrame has 1 or fewer columns. XGB Imputer cannot be applied. Falling back to simple fill.")
+            return self._fallback_single_column_fill(df, column_missing)
 
         # check if categorical features index is empty
         if len(categorical_features_index) == 0:
             categorical_features_index = []
 
-        # If type of column is object or bool, then it is categorical
-        if df.dtypes[column_missing] in ["object", "bool"]:
-            imputer = XGBImputer(categorical_features_index=categorical_features_index, replace_categorical_values_back=replace_values_back)
-            X = imputer.fit_transform(df)
-            df = pd.DataFrame(X)
+        '''predictor_cat_indices = self._remap_categorical_indices(
+            columns, column_missing, categorical_features_index
+        )'''
+        imputer = XGBImputer(
+            categorical_features_index=categorical_features_index,
+            replace_categorical_values_back=replace_values_back
+        )
 
-        else:
-            imputer = XGBImputer(categorical_features_index=categorical_features_index, replace_categorical_values_back=replace_values_back)
-            df = np.array(df)
-            # print("We are inside the class. Input shape: ", df.shape)
-            df = pd.DataFrame(imputer.fit_transform(df))
+        # If type of column is object or bool, then it is categorical
+        try:
+            if df.dtypes[column_missing] in ["object", "bool"]:
+                print(f"Dataframe head: {df.head()}, with categorical features index: {categorical_features_index}")
+                #df_enc = self._encode_categoricals(df)
+                X = imputer.fit_transform(df.to_numpy())
+                #df = self._decode_categoricals(pd.DataFrame(X))
+                df = pd.DataFrame(X)
+            else:
+                df = np.array(df)
+                # print("We are inside the class. Input shape: ", df.shape)
+                df = pd.DataFrame(imputer.fit_transform(df))
+        except Exception as exc:
+            print("XGB Imputer failed with exception: ", exc)
+            if "Data must has at least 1 column" in str(exc):
+                fallback_df = df if isinstance(df, pd.DataFrame) else pd.DataFrame(df, columns=columns)
+                return self._fallback_single_column_fill(fallback_df, column_missing)
+            raise
             
         df.columns = columns
 
-        numerical_indices = list(set(range(len(columns))) - set(categorical_features_index))
+        valid_full_categorical_indices = sorted(
+            set(idx for idx in categorical_features_index if 0 <= idx < len(columns))
+        )
+        numerical_indices = list(set(range(len(columns))) - set(valid_full_categorical_indices))
 
         for idx in numerical_indices:
             col_name = columns[idx]

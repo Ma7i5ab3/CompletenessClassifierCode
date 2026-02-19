@@ -28,7 +28,7 @@ from Feature_selection.feature_selection import feature_selection_univariate, fi
 from Column_profile_extraction.numerical import get_features_num
 from Datasets.get_dataset import get_dataset
 from Column_profile_extraction.categorical import get_features_cat
-from Imputation.imputation_techniques import impute_missing_column
+from Imputation.imputation_techniques import impute_missing_column, impute_clustering, impute_xgb_imputer
 from Classification.algorithms_class import classification
 from itertools import repeat
 from multiprocessing import Pool
@@ -113,38 +113,6 @@ class impute_soft_imputer():
         df.columns = columns
         return df
 
-# Works with both types of features
-class impute_xgb_imputer():
-    def __init__(self):
-        self.name = 'XGB Imputer'
-
-    def fit(self, df, column_missing, categorical_features_index, replace_values_back=False):
-        columns = df.columns
-
-        # If type of column is object or bool, then it is categorical
-        if df.dtypes[column_missing] in ["object", "bool"]:
-            imputer = XGBImputer(categorical_features_index=categorical_features_index, replace_categorical_values_back=replace_values_back)
-            X = imputer.fit_transform(df)
-            df = pd.DataFrame(X)
-
-        else:
-            imputer = XGBImputer(categorical_features_index=categorical_features_index, replace_categorical_values_back=replace_values_back)
-            df = np.array(df)
-            # print("We are inside the class. Input shape: ", df.shape)
-            df = pd.DataFrame(imputer.fit_transform(df))
-            
-        df.columns = columns
-
-        numerical_indices = list(set(range(len(columns))) - set(categorical_features_index))
-
-        for idx in numerical_indices:
-            col_name = columns[idx]
-            df[col_name] = pd.to_numeric(df[col_name], errors='coerce')
-
-        for col in df.columns:
-            print("Column type after imputation: ", col, " ", df[col].dtype)
-                
-        return df
     
 class impute_catboost():
     def __init__(self):
@@ -534,12 +502,16 @@ class impute_mlp_manual():
         
 def main():
     path_datasets = "Datasets/CSV/"
-    dataset = "abalone"
+    dataset = "german"
     df = get_dataset(path_datasets,dataset + ".csv")
 
     print("------------" + dataset + "------------")
     df = get_dataset(path_datasets,dataset + ".csv")
     class_name = df.columns[-1]
+
+    #Convert 'str' dtype to 'object' for categorical columns
+    str_columns = df.select_dtypes(include=['str']).columns
+    df[str_columns] = df[str_columns].astype(object)
 
     # feature selection
     # df_fs, _, _, _, _ = feature_selection_univariate(df, class_name, perc_num=50, perc_cat=60)
@@ -567,8 +539,6 @@ def main():
     # for each version of the dataset with missing values, impute the missing values in the selected column
     imputer_soft = impute_soft_imputer()
 
-    imputer_xgb = impute_xgb_imputer()
-
     imputer_catboost = impute_catboost()
 
     imputer_rfi = impute_rfi()
@@ -578,6 +548,11 @@ def main():
     imputer_gain = impute_gain()
     imputer_vae = impute_vae()
     imputer_mlp = impute_mlp_manual()
+
+    imputer_proto = impute_clustering()
+
+    imputer_xgb = impute_xgb_imputer()
+
     # Here we simulate an iteration on a list of datasets with missing values in the selected column, and we impute them one by one with
     # different techniques
 
@@ -589,6 +564,9 @@ def main():
         categorical_features_index = []
         categorical_features = list(df_list_no_class[i].select_dtypes(include=["object", "bool"]).columns)
         categorical_features_index = [df_list_no_class[i].columns.get_loc(col) for col in categorical_features]
+        print("Categorical features: ", categorical_features)
+        print("Categorical features index: ", categorical_features_index)
+        print("Data head: ", df_list_no_class[i].head())
 
         print("Column type: ", column_type)
         if column_type in ["int64", "float64"]:
@@ -603,8 +581,9 @@ def main():
         if column_type in ["object", "bool"]:
             print("Imputation with xgb imputer - Missing percentage: ", round(df_list_no_class[i][column_to_inject_missing].isnull().sum()/df_list_no_class[i].shape[0],2))
             df_missing = df_list_no_class[i]
+            print("Data {}".format(df_missing.head()))
             # df_missing[class_name] = df[class_name]
-            df_imputed_mlp = imputer_mlp.fit(df_missing, missing_column=column_to_inject_missing)
+            df_imputed_mlp = imputer_xgb.fit(df_missing, column_missing=column_to_inject_missing, categorical_features_index=categorical_features_index)
             # Check if there are still missing values
             #print("Missing values after imputation: ", df_imputed_em[column_to_inject_missing].isnull().sum())
             print("Imputed: ", df_imputed_mlp.head())
@@ -613,7 +592,5 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
 
 

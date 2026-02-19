@@ -12,6 +12,7 @@ import pandas as pd
 import warnings
 import time
 import traceback
+import json
 warnings.filterwarnings("ignore")
 # set PyTensor flags cxx to an empty string.
 import os
@@ -134,6 +135,50 @@ def sequential_exec(df, dataset, class_name, column, n_parallel_jobs, n_instance
     return results
 
 
+def load_processed_pairs(checkpoint_path):
+    if not os.path.exists(checkpoint_path):
+        return {}
+
+    try:
+        with open(checkpoint_path, "r") as checkpoint_file:
+            checkpoint_data = json.load(checkpoint_file)
+    except (json.JSONDecodeError, OSError) as e:
+        print(f"Unable to read checkpoint file '{checkpoint_path}': {e}")
+        return {}
+
+    pairs = checkpoint_data.get("processed_pairs", {})
+    processed_pairs = {}
+
+    # New format:
+    # {"processed_pairs": {"dataset_a": ["col_1", "col_2"], ...}}
+    if isinstance(pairs, dict):
+        for dataset_name, columns in pairs.items():
+            if isinstance(columns, list):
+                processed_pairs[dataset_name] = set(columns)
+        return processed_pairs
+
+    # Backward compatibility with old format:
+    # {"processed_pairs": ["dataset:column", ...]}
+    if isinstance(pairs, list):
+        for pair in pairs:
+            if isinstance(pair, str) and ":" in pair:
+                dataset_name, column_name = pair.split(":", 1)
+                processed_pairs.setdefault(dataset_name, set()).add(column_name)
+
+    return processed_pairs
+
+
+def save_processed_pairs(checkpoint_path, processed_pairs):
+    checkpoint_data = {
+        "processed_pairs": {
+            dataset_name: sorted(columns)
+            for dataset_name, columns in sorted(processed_pairs.items())
+        }
+    }
+    with open(checkpoint_path, "w") as checkpoint_file:
+        json.dump(checkpoint_data, checkpoint_file, indent=2)
+
+
 # procedure for the experiments on a specific column
 def procedure(df, dataset, class_name, column, seed):
     features = list(df.columns)
@@ -248,15 +293,24 @@ def main(reduced_df=False):
 
     path_datasets = "Datasets/CSV/"
     new_exp_path = "DeepLearningExps/"
+    checkpoint_path = f"{new_exp_path}processed_pairs_checkpoint.json"
     # sempre multipli
-    n_instances_tot = 1
-    n_parallel_jobs = 1
+    n_instances_tot = 8
+    n_parallel_jobs = 8
+    processed_pairs = load_processed_pairs(checkpoint_path)
+    n_processed_pairs = sum(len(columns) for columns in processed_pairs.values())
+    print(f"Loaded {n_processed_pairs} processed dataset:column pairs from checkpoint.")
+    print("Experiment files opened in append mode; headers are written only for empty/new files.")
 
     # Opening file to save the results (in the new experiments folder)
     files_numerical = []
     files_categorical = []
     for i in range(n_parallel_jobs):
-        file_num = open(f"{new_exp_path}experiment_{i+1}_numerical.csv","w")
+        num_file_path = f"{new_exp_path}experiment_{i+1}_numerical.csv"
+        should_write_num_header = (
+            not os.path.exists(num_file_path) or os.path.getsize(num_file_path) == 0
+        )
+        file_num = open(num_file_path, "a")
         num_header_prefix = (
             "name,column_name,n_tuples,missing_perc,uniqueness,"
             "min,max,mean,median,std,skewness,kurtosis,mad,"
@@ -264,19 +318,29 @@ def main(reduced_df=False):
             "density,ml_algorithm"
         )
         num_header = num_header_prefix + "," + ",".join(imp_methods_num) + "\n"
-        file_num.write(num_header)
-        print("Numerical file header written.")
+        if should_write_num_header:
+            file_num.write(num_header)
+            print("Numerical file header written.")
+        else:
+            print(f"Appending to existing numerical file: {num_file_path}")
         files_numerical.append(file_num)
 
-        file_cat = open(f"{new_exp_path}experiment_{i+1}_categorical.csv","w")
+        cat_file_path = f"{new_exp_path}experiment_{i+1}_categorical.csv"
+        should_write_cat_header = (
+            not os.path.exists(cat_file_path) or os.path.getsize(cat_file_path) == 0
+        )
+        file_cat = open(cat_file_path, "a")
         cat_header_prefix = (
             "name,column_name,n_tuples,missing_perc,constancy,imbalance,"
             "uniqueness,unalikeability,entropy,density,mean_char,std_char,skewness_char,"
             "kurtosis_char,min_char,max_char,ml_method"
         )
         cat_header = cat_header_prefix + "," + ",".join(imp_methods_cat) + "\n"
-        file_cat.write(cat_header)
-        print("Categorical file header written.")
+        if should_write_cat_header:
+            file_cat.write(cat_header)
+            print("Categorical file header written.")
+        else:
+            print(f"Appending to existing categorical file: {cat_file_path}")
         files_categorical.append(file_cat)
 
     # # Test write on categorial file
@@ -320,46 +384,58 @@ def main(reduced_df=False):
         columns.remove(class_name)
         print("Columns selected after removing correlated features: ", columns)
         for column in columns:
-            if column == 'Sex':
-                try:
-                    print("ANALYZING ", column)
-                    if not reduced_df:
-                        # print("Using full dataset for experiments.")
-                        # experiments = parallel_exec(df, dataset, class_name, column, n_parallel_jobs, n_instances_tot, file_seeds)
-                        experiments = sequential_exec(df, dataset, class_name, column, n_parallel_jobs, n_instances_tot, file_seeds)
-                    else:
-                        # print("Using reduced dataset for experiments.")
-                        # experiments = parallel_exec(df_fs, dataset, class_name, column, n_parallel_jobs, n_instances_tot, file_seeds)
-                        experiments = sequential_exec(df, dataset, class_name, column, n_parallel_jobs, n_instances_tot, file_seeds)
-                        # print("Experiments on column ", column, " completed.")
-                        # print("Experiments results: ", experiments)
+            if column in processed_pairs.get(dataset, set()):
+                print(f"Skipping already processed pair: {dataset}:{column}")
+                continue
 
-                    # write the results of the different experiments in the corresponding files
-                    for i, experiment in enumerate(experiments):
-                        if df[column].dtype in ["int64","float64"]:
-                            print("Writing results on numerical file: ", files_numerical[i].name)
-                            try:
-                                write_file(dataset, column, experiment, files_numerical[i])
-                                print("Write completed.")
-                            except Exception as e:
-                                print(f"ERROR writing to numerical file {files_numerical[i].name}: {e}")
-                        else:
-                            print("Writing results on categorical file: ", files_categorical[i].name)
-                            try:
-                                write_file(dataset, column, experiment, files_categorical[i])
-                                print("Write completed.")
-                            except Exception as e:
-                                print(f"ERROR writing to categorical file {files_categorical[i].name}: {e}")
-                except Exception as e:
-                    tb_last = traceback.extract_tb(e.__traceback__)[-1]
-                    error_location = f"{tb_last.filename}:{tb_last.lineno} ({tb_last.name})"
-                    print(
-                        f"ERROR in main loop for dataset {dataset}, column {column}: {e} "
-                        f"[at {error_location}]"
-                    )
-                    time.sleep(10)  # small delay before continuing with the next column
-                    errors.append((dataset, column, str(e), error_location))
-            
+            try:
+                print("ANALYZING ", column)
+                if not reduced_df:
+                    # print("Using full dataset for experiments.")
+                    experiments = parallel_exec(df, dataset, class_name, column, n_parallel_jobs, n_instances_tot, file_seeds)
+                    # experiments = sequential_exec(df, dataset, class_name, column, n_parallel_jobs, n_instances_tot, file_seeds)
+                else:
+                    # print("Using reduced dataset for experiments.")
+                    experiments = parallel_exec(df_fs, dataset, class_name, column, n_parallel_jobs, n_instances_tot, file_seeds)
+                    # experiments = sequential_exec(df, dataset, class_name, column, n_parallel_jobs, n_instances_tot, file_seeds)
+                    # print("Experiments on column ", column, " completed.")
+                    # print("Experiments results: ", experiments)
+
+                # write the results of the different experiments in the corresponding files
+                column_write_ok = True
+                for i, experiment in enumerate(experiments):
+                    if df[column].dtype in ["int64","float64"]:
+                        print("Writing results on numerical file: ", files_numerical[i].name)
+                        try:
+                            write_file(dataset, column, experiment, files_numerical[i])
+                            print("Write completed.")
+                        except Exception as e:
+                            print(f"ERROR writing to numerical file {files_numerical[i].name}: {e}")
+                            column_write_ok = False
+                    else:
+                        print("Writing results on categorical file: ", files_categorical[i].name)
+                        try:
+                            write_file(dataset, column, experiment, files_categorical[i])
+                            print("Write completed.")
+                        except Exception as e:
+                            print(f"ERROR writing to categorical file {files_categorical[i].name}: {e}")
+                            column_write_ok = False
+
+                if column_write_ok:
+                    processed_pairs.setdefault(dataset, set()).add(column)
+                    save_processed_pairs(checkpoint_path, processed_pairs)
+                    print(f"Checkpoint updated with pair: {dataset}:{column}")
+                else:
+                    print(f"Pair not checkpointed due to write errors: {dataset}:{column}")
+            except Exception as e:
+                tb_last = traceback.extract_tb(e.__traceback__)[-1]
+                error_location = f"{tb_last.filename}:{tb_last.lineno} ({tb_last.name})"
+                print(
+                    f"ERROR in main loop for dataset {dataset}, column {column}: {e} "
+                    f"[at {error_location}]"
+                )
+                errors.append((dataset, column, str(e), error_location))
+        
     # print errors if any
     if errors:
         with open(f"{new_exp_path}errors_log.txt", "w") as error_file:

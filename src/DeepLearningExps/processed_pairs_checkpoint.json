@@ -1,0 +1,12 @@
+{
+  "processed_pairs": {
+    "BachChoralHarmony": [
+      "V16",
+      "V2"
+    ],
+    "abalone": [
+      "'Length'",
+      "'Sex'"
+    ]
+  }
+}
