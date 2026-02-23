@@ -1,12 +1,49 @@
 {
   "processed_pairs": {
     "BachChoralHarmony": [
+      "V1",
+      "V15",
       "V16",
-      "V2"
+      "V2",
+      "V6"
     ],
     "abalone": [
       "'Length'",
       "'Sex'"
+    ],
+    "bank": [
+      "contact",
+      "duration",
+      "housing",
+      "month",
+      "pdays",
+      "previous"
+    ],
+    "drug": [
+      "Age",
+      "BP",
+      "Cholesterol",
+      "Na_to_K",
+      "Sex"
+    ],
+    "electricity-normalized": [
+      "day",
+      "nswdemand",
+      "nswprice",
+      "vicdemand"
+    ],
+    "german": [
+      "Age",
+      "Checking_account",
+      "Credit_amount",
+      "Duration",
+      "Purpose",
+      "Saving_accounts"
+    ],
+    "mv": [
+      "x4",
+      "x5",
+      "x6"
     ]
   }
 }

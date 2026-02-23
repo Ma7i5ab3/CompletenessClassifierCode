@@ -1,4 +1,8 @@
 name,column_name,seed_0,seed_1,seed_2,seed_3,seed_4,seed_5,seed_6,seed_7
-BachChoralHarmony,V2,95,45,27,22,15,72,84,48
-BachChoralHarmony,V16,85,46,45,97,41,75,18,67
-BachChoralHarmony,V1,11,59,56,76,27,75,17,90
+cancer,Uniformity_of_Cell_Size,67,61,78,49,57,7,61,29
+cancer,Bare_Nuclei,77,27,57,46,5,40,19,33
+cancer,Bland_Chromatin,20,73,75,98,46,88,17,3
+car,doors,59,87,15,25,52,57,26,24
+car,persons,50,39,80,86,9,75,56,0
+car,lug_boot,97,71,47,13,57,22,84,37
+default of credit card clients,x6,15,40,58,40,5,57,42,1
