@@ -21,6 +21,8 @@ from joblib import load, dump
 import itertools
 import warnings
 from Datasets.get_dataset import get_dataset
+import torch
+from Classification.deep_models_train import TorchTabularClassifier
 
 file_imp_methods_num = open("Imputation/methods_numerical_column.txt", "r")
 file_imp_methods_cat = open("Imputation/methods_categorical_column.txt", "r")
@@ -34,7 +36,7 @@ file_imp_methods_num.close()
 
 warnings.filterwarnings("ignore")
 
-def try_classification(df, target, ml_method, baseline=False):
+def try_classification(df, target, ml_method, baseline=False, n_splits=10, max_epochs=120, patience=12):
     """
     Computes the cross-validated f1-score of the ml method on the provided dataset.
     :param df: dataset provided for the training of the model
@@ -59,28 +61,36 @@ def try_classification(df, target, ml_method, baseline=False):
             model = LogisticRegression(C=0.35564803062231287)
         elif ml_method == "RandomForest":
             model = RandomForestClassifier(max_depth=25, n_estimators=20, random_state=0)
+        elif ml_method == "MLP":
+            model = TorchTabularClassifier(model_name="MLP", learning_rate=1e-3,
+                                           max_epochs=max_epochs, patience=patience, random_state=0)
+        elif ml_method == "TabNet":
+            model = TorchTabularClassifier(model_name="TabNet", learning_rate=1e-3,
+                                           max_epochs=max_epochs, patience=patience, random_state=0)
         else:
             model = AdaBoostClassifier()
     scaler = StandardScaler()
     pipeline = make_pipeline(scaler, model)
-    cv = StratifiedKFold(n_splits=10, random_state=0, shuffle=True)
+    cv = StratifiedKFold(n_splits=n_splits, random_state=0, shuffle=True)
     scores = cross_val_score(pipeline, x, y, scoring="f1_weighted", cv=cv)
     return np.mean(scores)
 
-def increment_indices(indices_imp_methods):
+def increment_indices(indices_imp_methods, n_methods):
     """
     utility function that indicate which are the next indexes of the four imputation methods
     to be tried. It is used when trying all the possible combinations of the
     four imputation methods on a validation dataset.
     :param indices_imp_methods: current indices of the imputation methods
+    :param n_methods: list of the number of imputation methods available for each column,
+    derived from col_dict. Handles both all-numerical and mixed datasets automatically.
     :return: the next indices of the imputation methods and whether to stop the computation,
     as the combinations are finished.
     """
-    if indices_imp_methods[-1] < 6: # change to 7 if only numerical dataset
+    if indices_imp_methods[-1] < n_methods[-1] - 2:
         indices_imp_methods[-1] += 1
     else:
-        for i in range(3,-1,-1):
-            if (i >= 2 and indices_imp_methods[i] == 7) or (i < 2 and indices_imp_methods[i] == 8): # change 7 to 8 for only numerical
+        for i in range(3, -1, -1):
+            if indices_imp_methods[i] == n_methods[i] - 1:
                 indices_imp_methods[i] = 0
             else:
                 break
@@ -88,13 +98,11 @@ def increment_indices(indices_imp_methods):
 
     flag = False
     for i in range(4):
-        if i < 2 and indices_imp_methods[i] < 8:
-            flag = True
-        elif i >= 2 and indices_imp_methods[i] < 7: # change 7 to 8 for only numerical
+        if indices_imp_methods[i] < n_methods[i] - 1:
             flag = True
     return indices_imp_methods, flag
 
-def validate_classifiers(df, ml_method, ds_name, target, cols_to_select=4, compute=True, seed=0):
+def validate_classifiers(df, ml_method, ds_name, target, cols_to_select=4, compute=True, seed=0, max_combinations=2000):
     """
     This function is used to validate the performance of the specialized classifiers
     against all possible combinations of the imputation methods. Two approaches are implemented:
@@ -237,25 +245,27 @@ def validate_classifiers(df, ml_method, ds_name, target, cols_to_select=4, compu
                 col_dict[col].append(values)
         print(f"Done {col}")
 
-    indices_imp_methods = np.zeros(len(features), dtype=np.int64)
+    n_methods = [len(col_dict[col]) for col in features]
+    total_combinations = int(np.prod(n_methods))
+    n_samples = min(max_combinations, total_combinations)
+    print(f"Total combinations: {total_combinations}, sampling {n_samples}")
+    rng = np.random.default_rng(seed)
+    sampled_indices = [rng.integers(0, n, size=n_samples) for n in n_methods]
     f1_comb_list = []
-    curr_iter = 1
-    flag = True
     seen_greater = 0
-    while flag:
-        curr_iter += 1
-        print(f"{curr_iter}")
+    for curr_iter in range(n_samples):
+        if curr_iter % 200 == 0:
+            print(f"{curr_iter}/{n_samples}")
         df_dirty_comb = pd.DataFrame(columns=features)
-        for i,col in enumerate(features):
-            df_dirty_comb[col] = col_dict[col][indices_imp_methods[i]]
+        for i, col in enumerate(features):
+            df_dirty_comb[col] = col_dict[col][sampled_indices[i][curr_iter]]
 
         df_dirty_comb[target] = df_fs[target]
-        f1_comb = try_classification(df_dirty_comb, target, ml_method, False)
+        f1_comb = try_classification(df_dirty_comb, target, ml_method, False,
+                                     n_splits=3, max_epochs=30, patience=5)
         f1_comb_list.append(f1_comb)
         if f1_comb > f1_sugg_no_order:
             seen_greater += 1
-            print(f"ALERT {seen_greater} / {f1_comb}")
-        indices_imp_methods, flag = increment_indices(indices_imp_methods)
     dump(f1_comb_list, f"Classifier_Validation/{ds_name}/list_f1_scores_{ml_method}.joblib")
     return f1_clean, f1_sugg_no_order, f1_sugg_order, f1_sugg_mean, suggested_methods
 
@@ -282,47 +292,62 @@ def analyze_list(f1_clean, f1_sugg_no_order, f1_sugg_order, f1_sugg_mean, ml_met
     plt.savefig(f"Classifier_Validation/{ds_name}/{ml_method}")
     plt.show()
 
-    print(round(f1_clean, 4), round(quant_25, 4), round(median, 4),  round(quant_75, 4),
-          round(f1_sugg_no_order, 4),
-          round(f1_sugg_order, 4),
-          round(f1_sugg_mean,4))
+    task_abbrev = {
+        "DecisionTree": "DT", "LogisticRegression": "LR", "KNN": "KNN",
+        "RandomForest": "RF", "AdaBoost": "ADA", "MLP": "MLP", "TabNet": "TabNet",
+    }
+    task = task_abbrev.get(ml_method, ml_method)
+
+    # labeled summary for easy reading
+    print(f"\n--- [{ds_name}] {ml_method} ---")
+    print(f"  clean={round(f1_clean,4):.4f} | Q2={round(median,4):.4f} | Q3={round(quant_75,4):.4f} "
+          f"| A1={round(f1_sugg_no_order,4):.4f} | A2={round(f1_sugg_order,4):.4f} | A2avg={round(f1_sugg_mean,4):.4f}")
+
+    # LaTeX table row — copy-paste directly into the paper
+    '''print(f"  LaTeX: {task:<8} & {round(f1_clean,4):.4f} & {round(median,4):.4f} "
+          f"& {round(quant_75,4):.4f} & {round(f1_sugg_no_order,4):.4f} "
+          f"& {round(f1_sugg_order,4):.4f} & {round(f1_sugg_mean,4):.4f} \\\\ \\hline")'''
 
 
 if __name__ == "__main__":
-    ml_methods = ["DecisionTree", "LogisticRegression","KNN","RandomForest","AdaBoost"]
-    name_main = "consumer" # ["wine", "visualizing_galaxy", "consumer", "student"]
-    target_main = "PurchaseIntent" # ["Wine", "binaryClass", "PurchaseIntent", "GradeClass"]
-    df_main = get_dataset("Datasets/CSV/", f"{name_main}.csv")
+    _device = ("cuda" if torch.cuda.is_available()
+               else "mps" if torch.backends.mps.is_available()
+               else "cpu")
+    print(f"PyTorch device: {_device}")
 
-    # df_main.drop("StudentID", inplace=True, axis=1) # only used with dataset student
+    ml_methods = ["DecisionTree", "LogisticRegression", "KNN", "RandomForest", "AdaBoost",
+                  "MLP", "TabNet"]
+    deep_methods = {"MLP", "TabNet"}  # combinations computed only for these two
 
-    df = df_main.copy()
-    selector = SelectKBest(mutual_info_classif, k='all')
-    features = list(df_main.columns)
-    features.remove(target_main)
-    cat_cols = list(
-        df_main.select_dtypes(include=['bool', 'object']).columns)
-    df[cat_cols] = OrdinalEncoder().fit_transform(df[cat_cols])
-    selector.fit(df[features], df[target_main])
+    datasets_config = [
+        #("visualizing_galaxy", "binaryClass",    4, None),
+        #("wine",               "Wine",           4, None),
+        ("consumer",           "PurchaseIntent", 2, None),
+        ("student",            "GradeClass",     2, "StudentID"),
+    ]
 
-    # print the most important features, in order
-    print(np.array(selector.get_feature_names_out())[np.argsort(selector.scores_)][::-1])
+    for name_main, target_main, cols_to_select, col_to_drop in datasets_config:
+        print(f"\n=== Dataset: {name_main} ===")
+        df_main = get_dataset("Datasets/CSV/", f"{name_main}.csv")
+        if col_to_drop:
+            df_main.drop(col_to_drop, inplace=True, axis=1)
 
-    if name_main == "consumer" or name_main == "student":
-        cols_to_select = 2
+        df = df_main.copy()
+        selector = SelectKBest(mutual_info_classif, k='all')
+        features = list(df_main.columns)
+        features.remove(target_main)
+        cat_cols = list(df_main.select_dtypes(include=['bool', 'object']).columns)
+        df[cat_cols] = OrdinalEncoder().fit_transform(df[cat_cols])
+        selector.fit(df[features], df[target_main])
+        print(np.array(selector.get_feature_names_out())[np.argsort(selector.scores_)][::-1])
 
-    else: # visualizing_galaxy or wine are fully numerical
-        cols_to_select = 4
-
-    for ml_method_main in ml_methods:
-        print(ml_method_main)
-
-        # in the following, change the compute parameter if the performance of all combinations has been already computed
-        f1_clean_main, f1_sugg_no_order_main, f1_sugg_order_main, f1_sugg_mean_main, suggested_methods = validate_classifiers(df_main,
-                                                                                                                              ml_method_main,
-                                                                                                                              name_main,
-                                                                                                                              target_main,
-                                                                                                                              cols_to_select=cols_to_select,
-                                                                                                                              compute=True)
-
-        analyze_list(f1_clean_main, f1_sugg_no_order_main, f1_sugg_order_main, f1_sugg_mean_main, ml_method_main, name_main)
+        for ml_method_main in ml_methods:
+            if ml_method_main in ["MLP", "TabNet"]:
+                print(ml_method_main)
+                compute = ml_method_main in deep_methods
+                f1_clean_main, f1_sugg_no_order_main, f1_sugg_order_main, \
+                    f1_sugg_mean_main, suggested_methods = validate_classifiers(
+                        df_main, ml_method_main, name_main, target_main,
+                        cols_to_select=cols_to_select, compute=compute)
+                analyze_list(f1_clean_main, f1_sugg_no_order_main, f1_sugg_order_main,
+                            f1_sugg_mean_main, ml_method_main, name_main)

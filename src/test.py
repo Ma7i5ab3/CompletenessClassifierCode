@@ -28,7 +28,7 @@ from Feature_selection.feature_selection import feature_selection_univariate, fi
 from Column_profile_extraction.numerical import get_features_num
 from Datasets.get_dataset import get_dataset
 from Column_profile_extraction.categorical import get_features_cat
-from Imputation.imputation_techniques import impute_missing_column, impute_clustering, impute_xgb_imputer
+from Imputation.imputation_techniques import impute_missing_column, impute_clustering, impute_xgb_imputer, impute_catboost
 from Classification.algorithms_class import classification
 from itertools import repeat
 from multiprocessing import Pool
@@ -112,89 +112,6 @@ class impute_soft_imputer():
         df = pd.DataFrame(df)
         df.columns = columns
         return df
-
-    
-class impute_catboost():
-    def __init__(self):
-        self.name = 'CatBoost Imputer'
-
-    def fit(self, df, missing_column):
-
-        type_missing = df.dtypes[missing_column]
-        #missing_column = df[missing_column]
-        print("Type missing: ", type_missing)
-        X = df.copy()
-
-        # Select categorical features from the dataset
-        cat_features = list(df.select_dtypes(include=["object", "bool"]).columns)
-
-        if type_missing in ["int64", "float64"]:
-            # Use CatBoostRegressor
-            fully_available_samples = X[X[missing_column].notnull()]
-            missing = X[X[missing_column].isnull()]
-
-            X_train = fully_available_samples.drop(columns = [missing_column])
-            print("X_train type: ", type(X_train))
-            print("X_train shape: ", X_train.shape)
-            y_train = fully_available_samples[missing_column]
-
-            X_pred = missing.drop(columns = [missing_column])
-
-            # Up to here we have the training set in X_train and y_train and the uncomplete samples in X_pred
-
-            imputer = CatBoostRegressor(
-                iterations=200,
-                depth=6,
-                learning_rate=0.05,
-                loss_function='RMSE',
-                verbose=False,
-                random_seed=42
-            )
-
-            if len(fully_available_samples) > 1 and len(missing) > 0:
-                imputer.fit(X_train, y_train, cat_features=cat_features)
-                print(type(df))
-                df.loc[df[missing_column].isnull(), missing_column] = imputer.predict(X_pred)
-                df = pd.DataFrame(df)
-                return df
-            
-            df = pd.DataFrame(columns=df.columns)
-            return df
-            
-        elif type_missing in ["bool", "object"]:
-            cat_features = [feat for feat in cat_features if feat != missing_column]
-            # Use CatBoostClassifier
-            fully_available_samples = X[X[missing_column].notnull()]
-            missing = X[X[missing_column].isnull()]
-
-            # # encode categorical variables
-            # fully_available_samples = encoding_categorical_variables(fully_available_samples)
-            # print("Fully available samples after encoding: ", fully_available_samples.head())
-
-            # missing = encoding_categorical_variables(missing)
-
-            X_train = fully_available_samples.drop(columns = [missing_column])
-            y_train = fully_available_samples[missing_column]
-
-            X_pred = missing.drop(columns = [missing_column])
-
-            imputer = CatBoostClassifier(
-                iterations=200,
-                depth=6,
-                learning_rate=0.05,
-                loss_function='MultiClass',
-                verbose=False,
-                random_seed=42
-            )
-
-            if len(fully_available_samples) > 1 and len(missing) > 0:
-                imputer.fit(X_train, y_train, cat_features=cat_features)
-                df.loc[df[missing_column].isnull(), missing_column] = imputer.predict(X_pred)
-                df = pd.DataFrame(df)
-                return df
-
-            print("Debug")
-            return 0
         
 # Both kind of features
 class impute_rfi():
@@ -502,7 +419,7 @@ class impute_mlp_manual():
         
 def main():
     path_datasets = "Datasets/CSV/"
-    dataset = "german"
+    dataset = "mushrooms"
     df = get_dataset(path_datasets,dataset + ".csv")
 
     print("------------" + dataset + "------------")
@@ -573,7 +490,7 @@ def main():
             print("Imputation with xgb imputer - Missing percentage: ", round(df_list_no_class[i][column_to_inject_missing].isnull().sum()/df_list_no_class[i].shape[0],2))
             df_missing = df_list_no_class[i]
             # df_missing[class_name] = df[class_name]
-            df_imputed_mlp = imputer_mlp.fit(df_missing, missing_column=column_to_inject_missing)
+            df_imputed_mlp = imputer_catboost.fit(df_missing, missing_column=column_to_inject_missing)
             # Check if there are still missing values
             # print("Missing values after imputation: ", df_imputed_em[column_to_inject_missing].isnull().sum())
             print("Imputed: ", df_imputed_mlp.head())
@@ -583,7 +500,7 @@ def main():
             df_missing = df_list_no_class[i]
             print("Data {}".format(df_missing.head()))
             # df_missing[class_name] = df[class_name]
-            df_imputed_mlp = imputer_xgb.fit(df_missing, column_missing=column_to_inject_missing, categorical_features_index=categorical_features_index)
+            df_imputed_mlp = imputer_catboost.fit(df_missing, missing_column=column_to_inject_missing)
             # Check if there are still missing values
             #print("Missing values after imputation: ", df_imputed_em[column_to_inject_missing].isnull().sum())
             print("Imputed: ", df_imputed_mlp.head())

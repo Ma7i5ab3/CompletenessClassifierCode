@@ -6,4 +6,3 @@ AdaBoost
 SVC
 MLP
 TabNet
-FTTransformer

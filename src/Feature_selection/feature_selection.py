@@ -113,9 +113,14 @@ def fixed_fs_univariate(df, class_name, cols_to_select=3):
     # select numerical columns
     if len(numerical_columns) != 0:
         num_X = X[numerical_columns]
+        num_X_for_selection = num_X
+        # SelectKBest/f_classif cannot handle NaNs; impute only for ranking.
+        if num_X.isnull().values.any():
+            num_X_for_selection = num_X_for_selection.fillna(num_X_for_selection.median())
+            num_X_for_selection = num_X_for_selection.fillna(0.0)
         if len(numerical_columns) >= cols_to_select:
             selector = SelectKBest(f_classif, k=cols_to_select)
-            selector.fit(num_X, y)
+            selector.fit(num_X_for_selection, y)
             num_feature_names = selector.get_feature_names_out(num_X.columns)
         else:
             num_feature_names = numerical_columns
@@ -124,10 +129,14 @@ def fixed_fs_univariate(df, class_name, cols_to_select=3):
     # select categorical columns
     if len(categorical_columns) != 0:
         cat_X = X[categorical_columns]
-        # encode the columns for correctly apply the statistical test
-        oe = OrdinalEncoder(handle_unknown='use_encoded_value', unknown_value=np.nan)
-        oe.fit(cat_X)
-        encoded_cat_X = oe.transform(cat_X)
+        cat_X_for_selection = cat_X
+        # SelectKBest/chi2 cannot handle NaNs; use a placeholder only for ranking.
+        if cat_X.isnull().values.any():
+            cat_X_for_selection = cat_X.astype("object").fillna("__missing__")
+        # Encode columns for correctly applying the statistical test.
+        oe = OrdinalEncoder(handle_unknown='use_encoded_value', unknown_value=-1)
+        oe.fit(cat_X_for_selection)
+        encoded_cat_X = oe.transform(cat_X_for_selection)
         if len(categorical_columns) >= cols_to_select:
             selector = SelectKBest(chi2, k=cols_to_select)
             selector.fit(encoded_cat_X, y)

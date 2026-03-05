@@ -1,2 +1,6 @@
-MLP
-TabNet
+DecisionTree
+LogisticRegression
+KNN
+RandomForest
+AdaBoost
+SVC

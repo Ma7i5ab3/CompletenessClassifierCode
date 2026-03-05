@@ -57,9 +57,9 @@ def get_final_df(reduced=True, num=True):
         """
     else:
         if num:
-            final_df = pd.read_csv("final_files/experiment_1_numerical.csv")
+            final_df = pd.read_csv("all_methods_exp/experiment_1_numerical.csv")
         else:
-            final_df = pd.read_csv("final_files/experiment_1_categorical.csv")
+            final_df = pd.read_csv("all_methods_exp/experiment_1_categorical.csv")
         num_columns = list(final_df.columns)
         num_columns.remove("name")
         num_columns.remove("column_name")
@@ -69,9 +69,9 @@ def get_final_df(reduced=True, num=True):
             num_columns.remove("ml_method")
         for i in range(1, 4):
             if num:
-                df = pd.read_csv(f"final_files/experiment_{i + 1}_numerical.csv")
+                df = pd.read_csv(f"all_methods_exp/experiment_{i + 1}_numerical.csv")
             else:
-                df = pd.read_csv(f"final_files/experiment_{i + 1}_categorical.csv")
+                df = pd.read_csv(f"all_methods_exp/experiment_{i + 1}_categorical.csv")
             final_df[num_columns] += df[num_columns]
         final_df[num_columns] /= 4
     return final_df.copy()
@@ -103,7 +103,8 @@ def tune_binary_classifier(max_iter=100, is_num=True):
                    'min_samples_split': min_samples_split,
                    'min_samples_leaf': min_samples_leaf,
                    'bootstrap': bootstrap}
-    ml_algorithms = ["DecisionTree", "LogisticRegression","KNN","RandomForest","AdaBoost"]
+    ml_algorithms = ["DecisionTree", "LogisticRegression", "KNN", "RandomForest", "AdaBoost",
+                     "MLP", "TabNet"]
     max = np.zeros(len(ml_algorithms))-1 # list that will contain the maximum achieved f1 score
     best_params = {key: [] for key in range(len(ml_algorithms))}
     for iter in range(max_iter):
@@ -156,7 +157,8 @@ def binary_classifier(clf=RandomForestClassifier(random_state=0), is_num=True):
     scores_ml_list = []
 
     # we fit the classifier for each ml method
-    ml_algorithms = ["DecisionTree", "LogisticRegression", "KNN", "RandomForest", "AdaBoost"]
+    ml_algorithms = ["DecisionTree", "LogisticRegression", "KNN", "RandomForest", "AdaBoost",
+                     "MLP", "TabNet"]
     for n, ml_algorithm in enumerate(ml_algorithms):
         print(f"#### {ml_algorithm} ####")
 
@@ -195,10 +197,10 @@ def binary_classifier(clf=RandomForestClassifier(random_state=0), is_num=True):
         features.remove("column_name")
         if is_num:
             features.remove("ml_algorithm")
-            features = features[:-9]
+            features = features[:-len(imp_methods_num)]
         else:
             features.remove("ml_method")
-            features = features[:-8]
+            features = features[:-len(imp_methods_cat)]
         df_train = df_ml_algorithm[features]
         df_train = df_train.fillna(0)
         threshold = 0.8
@@ -249,53 +251,79 @@ def pdp(is_num=True):
     :param is_num: wheter to use categorical or numerical columns' data
     """
     final_df = get_final_df(True, is_num)
-    ml_models = ["DecisionTree", "LogisticRegression", "KNN", "RandomForest", "AdaBoost"]
-    fig, ax = plt.subplots(5, 3, figsize=(20, 30))
-    ax = ax.flatten()
+    ml_models = ["DecisionTree", "LogisticRegression", "KNN", "RandomForest", "AdaBoost",
+                 "MLP", "TabNet"]
+
+    # Compute a common feature list from the full dataset once to ensure all models
+    # use the same features and ax size is consistent
+    _all_features = list(final_df.columns)
+    _all_features.remove("name")
+    _all_features.remove("column_name")
     if is_num:
-        ax = ax[:13]
+        _all_features.remove("ml_algorithm")
+        _all_features = _all_features[:-len(imp_methods_num)]
     else:
-        ax = ax[:11]
-    colors = ["red", "blue", "green", "orange", "purple", "cyan"]
-    for model in range(5):
+        _all_features.remove("ml_method")
+        _all_features = _all_features[:-len(imp_methods_cat)]
+    _corr = final_df[_all_features].fillna(0).corr(numeric_only=True)
+    _upper = _corr.where(np.triu(np.ones(_corr.shape), k=1).astype(bool))
+    _to_drop = set(c for c in _upper.columns if any(_upper[c] > 0.8))
+    common_features = [f for f in _all_features if f not in _to_drop]
+
+    n_features = len(common_features)
+    n_cols = 3
+    n_rows = (n_features + n_cols - 1) // n_cols
+    fig, ax = plt.subplots(n_rows, n_cols, figsize=(20, 30))
+    ax = ax.flatten()[:n_features]
+    colors = ["red", "blue", "green", "orange", "purple", "cyan", "magenta"]
+    for model in range(7):
         print(model)
         # retrieve the binary classifier
         if is_num:
             if model==0:
-                params = [50, 'sqrt', 80, 2, 4, True]
+                params = [35, 'sqrt', 90, 2, 2, False]
                 df_ml_algorithm = final_df[final_df["ml_algorithm"] == "DecisionTree"]
             elif model==1:
-                params = [73, 'log2', 30, 5, 1, True]
+                params = [269, 'sqrt', 20, 5, 4, True]
                 df_ml_algorithm = final_df[final_df["ml_algorithm"] == "LogisticRegression"]
             elif model==2:
-                params = [110, 'log2', 30, 2, 2, True]
+                params = [20, 'log2', 110, 5, 1, True]
                 df_ml_algorithm = final_df[final_df["ml_algorithm"] == "KNN"]
             elif model==3:
-                params = [209, 'log2', 30, 5, 4, False]
+                params = [103, 'log2', 30, 5, 1, True]
                 df_ml_algorithm = final_df[final_df["ml_algorithm"] == "RandomForest"]
-            else:
-                params = [163, 'sqrt', 50, 10, 4, True]
+            elif model==4:
+                params = [12, 'sqrt', 50, 2, 4, False]
                 df_ml_algorithm = final_df[final_df["ml_algorithm"] == "AdaBoost"]
+            elif model==5:
+                params = [12, 'sqrt', 50, 2, 4, False]  # TODO: fill after tuning
+                df_ml_algorithm = final_df[final_df["ml_algorithm"] == "MLP"]
+            else:
+                params = [50, 'log2', 10, 10, 2, True]  # TODO: fill after tuning
+                df_ml_algorithm = final_df[final_df["ml_algorithm"] == "TabNet"]
 
         else:
             if model == 0:
-                params = [20, 'log2', 70, 10, 2, False]
-                df_ml_algorithm = final_df[
-                    final_df["ml_method"] == "DecisionTree"]
+                params = [12, 'log2', 30, 5, 2, False]
+                df_ml_algorithm = final_df[final_df["ml_method"] == "DecisionTree"]
             elif model == 1:
-                params = [20, 'sqrt', 110, 5, 4, False]
-                df_ml_algorithm = final_df[
-                    final_df["ml_method"] == "LogisticRegression"]
+                params = [12, 'log2', 110, 5, 4, False]
+                df_ml_algorithm = final_df[final_df["ml_method"] == "LogisticRegression"]
             elif model == 2:
-                params = [171, 'log2', 80, 10, 2, True]
+                params = [292, 'log2', 40, 10, 1, True]
                 df_ml_algorithm = final_df[final_df["ml_method"] == "KNN"]
             elif model == 3:
-                params = [35, 'sqrt', 90, 2, 2, False]
-                df_ml_algorithm = final_df[
-                    final_df["ml_method"] == "RandomForest"]
-            else:
-                params = [186, 'log2', 60, 2, 4, False]
+                params = [292, 'log2', 10, 2, 1, False]
+                df_ml_algorithm = final_df[final_df["ml_method"] == "RandomForest"]
+            elif model == 4:
+                params = [300, 'sqrt', None, 2, 1, False]
                 df_ml_algorithm = final_df[final_df["ml_method"] == "AdaBoost"]
+            elif model == 5:
+                params = [141, 'sqrt', 60, 2, 2, False]  # TODO: fill after tuning
+                df_ml_algorithm = final_df[final_df["ml_method"] == "MLP"]
+            else:
+                params = [42, 'sqrt', 50, 2, 2, False]  # TODO: fill after tuning
+                df_ml_algorithm = final_df[final_df["ml_method"] == "TabNet"]
 
         clf = RandomForestClassifier(n_estimators=params[0],
                                      max_features=params[1],
@@ -333,23 +361,7 @@ def pdp(is_num=True):
 
         labels = np.array(labels)
 
-        features = list(df_ml_algorithm.columns)
-        features.remove("name")
-        features.remove("column_name")
-        if is_num:
-            features.remove("ml_algorithm")
-            features = features[:-9]
-        else:
-            features.remove("ml_method")
-            features = features[:-8]
-        df_train = df_ml_algorithm[features]
-        df_train = df_train.fillna(0)
-
-        threshold = 0.8
-        corr = df_train.corr(numeric_only=True)
-        upper = corr.where(np.triu(np.ones(corr.shape), k=1).astype(bool))
-        to_drop = [column for column in upper.columns if any(upper[column] > threshold)]
-        df_train.drop(df_train[to_drop], axis=1, inplace=True)
+        df_train = df_ml_algorithm[common_features].fillna(0)
 
         # train the model
         clf.fit(df_train, labels)
@@ -360,7 +372,7 @@ def pdp(is_num=True):
         else:
             plot_cat(clf, ml_models, model, df_train, ax, colors)
 
-    plt.savefig(f"C:/Users/PC/Desktop/risultati/PDP/pdp_{is_num}.png")
+    plt.savefig(f"../../results and figures/PDP/pdp_{is_num}.png")
 
 def plot_num(clf, ml_models, model, df_train, ax, colors):
     d = PartialDependenceDisplay.from_estimator(clf, df_train, range(len(list(df_train.columns))), ax=ax, random_state=0)
@@ -386,8 +398,8 @@ def plot_cat(clf, ml_models, model, df_train, ax, colors):
 
 if __name__ == "__main__":
     # tuning the binary classifiers
-    tune_binary_classifier()
-    tune_binary_classifier(is_num=True)
+    #tune_binary_classifier()
+    # tune_binary_classifier(is_num=False)
 
     # for baseline computation
     binary_classifier(clf=RandomForestClassifier(), is_num=False)
@@ -395,5 +407,5 @@ if __name__ == "__main__":
 
     # show partial dependency plots
     plt.rcParams['axes.labelsize'] = 22
-    pdp(is_num=True)
-    pdp(is_num=False)
+    #pdp(is_num=True)
+    #pdp(is_num=False)

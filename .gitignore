@@ -10,3 +10,4 @@ pycache/
 src/.DS_Store
 .gitignore
 .gitignore
+.DS_Store

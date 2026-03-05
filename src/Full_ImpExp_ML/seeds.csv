@@ -1,0 +1,4 @@
+name,column_name,seed_0,seed_1,seed_2,seed_3,seed_4,seed_5,seed_6,seed_7
+wall-robot-navigation,V1,2,44,50,45,1,16,79,69
+wall-robot-navigation,V2,10,38,29,80,87,79,0,98
+wall-robot-navigation,V4,73,74,46,75,98,12,39,36

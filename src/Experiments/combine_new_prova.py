@@ -23,13 +23,13 @@ def combine_num(thresh=0.005):
     methods. An imputation method is equivalent to the best one if the difference
     in performance is no more than the provided threshold.
     """
-    final_df = pd.read_csv("final_files/experiment_1_numerical.csv")
+    final_df = pd.read_csv("all_methods_exp/experiment_1_numerical.csv")
     num_columns = list(final_df.columns)
     num_columns.remove("name")
     num_columns.remove("column_name")
     num_columns.remove("ml_algorithm")
     for i in range(1,8):
-        df = pd.read_csv(f"final_files/experiment_{i+1}_numerical.csv")
+        df = pd.read_csv(f"all_methods_exp/experiment_{i+1}_numerical.csv")
         final_df[num_columns] += df[num_columns]
     final_df[num_columns] /= 8
 
@@ -46,7 +46,7 @@ def combine_num(thresh=0.005):
         diff_row = max_row - scores_row
         best_count = np.sum(diff_row <= thresh)
         best_methods.append(
-            list(imp_methods_num[sorted_scores_indices[i, :]][:best_count]))
+            [str(m) for m in imp_methods_num[sorted_scores_indices[i, :]][:best_count]])
     count_list = np.array([len(x) for x in best_methods])
     vals, counts = np.unique(count_list, return_counts=True)
 
@@ -69,7 +69,7 @@ def combine_num(thresh=0.005):
 
     # save the dataset
     dataset_to_save = final_df[columns]
-    dataset_to_save.to_csv("combined_new_prova/numerical_kb_combined.csv", index=False)
+    dataset_to_save.to_csv("combined_all/numerical_kb_combined.csv", index=False)
 
 def combine_cat(thresh=0.005):
     """
@@ -82,13 +82,13 @@ def combine_cat(thresh=0.005):
     methods. An imputation method is equivalent to the best one if the difference
     in performance is no more than the provided threshold.
     """
-    final_df = pd.read_csv("final_files/experiment_1_categorical.csv")
+    final_df = pd.read_csv("all_methods_exp/experiment_1_categorical.csv")
     num_columns = list(final_df.columns)
     num_columns.remove("name")
     num_columns.remove("column_name")
     num_columns.remove("ml_method")
     for i in range(1, 8):
-        df = pd.read_csv(f"final_files/experiment_{i + 1}_categorical.csv")
+        df = pd.read_csv(f"all_methods_exp/experiment_{i + 1}_categorical.csv")
         final_df[num_columns] += df[num_columns]
     final_df[num_columns] /= 8
 
@@ -103,7 +103,7 @@ def combine_cat(thresh=0.005):
         diff_row = max_row - scores_row
         best_count = np.sum(diff_row <= thresh)
         best_methods.append(
-            list(imp_methods_cat[sorted_scores_indices[i, :]][:best_count]))
+            [str(m) for m in imp_methods_cat[sorted_scores_indices[i, :]][:best_count]])
 
     count_list = np.array([len(x) for x in best_methods])
     vals, counts = np.unique(count_list, return_counts=True)
@@ -124,7 +124,7 @@ def combine_cat(thresh=0.005):
         columns.remove(col)
 
     dataset_to_save = final_df[columns]
-    dataset_to_save.to_csv("combined_new_prova/categorical_kb_combined.csv",index=False)
+    dataset_to_save.to_csv("combined_all/categorical_kb_combined.csv",index=False)
 
 
 if __name__ == "__main__":

@@ -55,8 +55,15 @@ class TorchTabularClassifier(BaseEstimator, ClassifierMixin):
         torch.manual_seed(self.random_state)
         np.random.seed(self.random_state)
 
-        x_tensor = torch.from_numpy(x_np)
-        y_tensor = torch.from_numpy(y_encoded)
+        if torch.cuda.is_available():
+            self.device_ = torch.device("cuda")
+        elif torch.backends.mps.is_available():
+            self.device_ = torch.device("mps")
+        else:
+            self.device_ = torch.device("cpu")
+
+        x_tensor = torch.from_numpy(x_np).to(self.device_)
+        y_tensor = torch.from_numpy(y_encoded).to(self.device_)
 
         train_idx = np.arange(x_np.shape[0])
         val_idx = None
@@ -87,7 +94,7 @@ class TorchTabularClassifier(BaseEstimator, ClassifierMixin):
 
         input_dim = x_np.shape[1]
         n_classes = len(self.classes_)
-        self.model_ = initialize_model(self.model_name, input_dim, n_classes)
+        self.model_ = initialize_model(self.model_name, input_dim, n_classes).to(self.device_)
 
         optimizer = torch.optim.AdamW(
             self.model_.parameters(),
@@ -152,7 +159,7 @@ class TorchTabularClassifier(BaseEstimator, ClassifierMixin):
     def predict(self, X):
         check_is_fitted(self, "model_")
         x_np = self._to_numpy(X).astype(np.float32)
-        x_tensor = torch.from_numpy(x_np)
+        x_tensor = torch.from_numpy(x_np).to(self.device_)
 
         self.model_.eval()
         with torch.no_grad():
@@ -163,7 +170,7 @@ class TorchTabularClassifier(BaseEstimator, ClassifierMixin):
     def predict_proba(self, X):
         check_is_fitted(self, "model_")
         x_np = self._to_numpy(X).astype(np.float32)
-        x_tensor = torch.from_numpy(x_np)
+        x_tensor = torch.from_numpy(x_np).to(self.device_)
 
         self.model_.eval()
         with torch.no_grad():

@@ -1,0 +1,96 @@
+{
+  "processed_pairs": {
+    "cancer": [
+      "Bare_Nuclei",
+      "Bland_Chromatin",
+      "Uniformity_of_Cell_Size"
+    ],
+    "car": [
+      "doors",
+      "lug_boot",
+      "persons"
+    ],
+    "default of credit card clients": [
+      "x6",
+      "x7",
+      "x8"
+    ],
+    "fried": [
+      "X1",
+      "X2",
+      "X4"
+    ],
+    "frogs": [
+      "MFCCs_13",
+      "MFCCs_15",
+      "MFCCs_22"
+    ],
+    "house": [
+      "GarageCars",
+      "GarageType",
+      "HeatingQC",
+      "KitchenAbvGr",
+      "Neighborhood",
+      "YearRemodAdd"
+    ],
+    "iris": [
+      "sepal_length",
+      "sepal_width"
+    ],
+    "letter": [
+      "x-ege",
+      "x2ybr",
+      "y-bar"
+    ],
+    "mushrooms": [
+      "GillSize",
+      "RingType",
+      "SporePrintColor"
+    ],
+    "mv": [
+      "x3",
+      "x4",
+      "x5",
+      "x6",
+      "x7",
+      "x8"
+    ],
+    "nursery": [
+      "'children'",
+      "'health'",
+      "'parents'"
+    ],
+    "phoneme": [
+      "V1",
+      "V3",
+      "V4"
+    ],
+    "ringnorm": [
+      "V14",
+      "V19",
+      "V9"
+    ],
+    "shuttle": [
+      "A1",
+      "A2",
+      "A7"
+    ],
+    "soybean": [
+      "fruit-spots",
+      "leaf-mild",
+      "sclerotia"
+    ],
+    "stars": [
+      "A_M",
+      "Color",
+      "L",
+      "R",
+      "Spectral_Class"
+    ],
+    "wall-robot-navigation": [
+      "V1",
+      "V2",
+      "V4"
+    ]
+  }
+}

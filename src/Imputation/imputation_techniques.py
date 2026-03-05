@@ -25,6 +25,9 @@ from xgbimputer import XGBImputer
 from catboost import CatBoostRegressor, CatBoostClassifier
 from autoimpute.imputations import MiceImputer
 import miceforest as mf
+from sklearn.experimental import enable_iterative_imputer
+from sklearn.linear_model import LinearRegression
+from xgboost import XGBRegressor
 
 
 class no_impute:
@@ -487,7 +490,6 @@ class impute_soft_imputer():
 class impute_xgb_imputer():
     def __init__(self):
         self.name = 'XGB Imputer'
-        self._cat_maps = {}  # {col: [categories...]}
 
     def _fallback_single_column_fill(self, df, column_missing):
         df_filled = df.copy()
@@ -509,61 +511,27 @@ class impute_xgb_imputer():
                 continue
             predictor_cat_indices.append(idx if idx < missing_idx else idx - 1)
         return sorted(set(predictor_cat_indices))
-    
-    '''def _encode_categoricals(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Encode ALL object/bool columns into float codes (NaN preserved).
-        Store mapping so we can restore original labels after imputation.
-        """
-        df_enc = df.copy()
-        self._cat_maps = {}
 
-        cat_cols = df_enc.select_dtypes(include=["object", "bool"]).columns
-        for col in cat_cols:
-            ser = df_enc[col].astype("category")
-            cats = list(ser.cat.categories)     # original labels
-            codes = ser.cat.codes.astype("float")  # -1 represents NaN
-            codes[codes == -1] = np.nan
-
-            df_enc[col] = codes
-            self._cat_maps[col] = cats
-
-        return df_enc'''
-
-    '''def _decode_categoricals(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Decode previously-encoded categorical columns back to original labels.
-        """
-        df_dec = df.copy()
-
-        for col, cats in self._cat_maps.items():
-            if col not in df_dec.columns:
-                continue
-            if len(cats) == 0:
-                continue
-
-            vals = pd.to_numeric(df_dec[col], errors="coerce")
-            na_mask = vals.isna()
-
-            # XGB may output float-ish values; bring back to valid integer codes
-            codes = vals.round()
-            codes = codes.clip(lower=0, upper=len(cats) - 1)
-
-            codes_int = codes.astype("Int64")  # keeps <NA>
-            restored = pd.Series(
-                pd.Categorical.from_codes(
-                    codes_int.fillna(0).astype(int),
-                    categories=cats
-                ),
-                index=df_dec.index
-            ).astype("object")
-
-            restored[na_mask] = np.nan
-            df_dec[col] = restored
-
-        return df_dec'''
+    def _iterative_xgb_impute(self, df, columns, encoder=None):
+        """Run IterativeImputer with XGBRegressor, optionally wrapping with ordinal encoding."""
+        if encoder is not None:
+            df_work = pd.DataFrame(encoder.fit_transform(df), columns=columns)
+        else:
+            df_work = df
+        imputed = IterativeImputer(
+            estimator=XGBRegressor(n_estimators=100, random_state=0),
+            random_state=0
+        ).fit_transform(df_work)
+        result = pd.DataFrame(imputed, columns=columns)
+        if encoder is not None:
+            result = pd.DataFrame(
+                encoder.inverse_transform(result.round().clip(0).astype(int).values.copy()),
+                columns=columns
+            )
+        return result
 
     def fit(self, df, column_missing, categorical_features_index, replace_values_back=True):
+        print(f"Dataset head before XGB Imputer: {df.head()}")
         columns = df.columns
         if column_missing not in columns:
             print(f"Warning: Missing column '{column_missing}' not found in DataFrame. Returning original DataFrame.")
@@ -572,13 +540,19 @@ class impute_xgb_imputer():
             print("Warning: DataFrame has 1 or fewer columns. XGB Imputer cannot be applied. Falling back to simple fill.")
             return self._fallback_single_column_fill(df, column_missing)
 
-        # check if categorical features index is empty
+        # check if categorical features index is empty use IterativeImputer with XGBRegressor as estimator as equivalent to the XGBImputer for numeric features
         if len(categorical_features_index) == 0:
-            categorical_features_index = []
+            print("No categorical features detected. Using IterativeImputer with XGBoost estimator.")
+            return self._iterative_xgb_impute(df, columns)
 
-        '''predictor_cat_indices = self._remap_categorical_indices(
-            columns, column_missing, categorical_features_index
-        )'''
+        # XGBImputer crashes when all features are categorical (numerical_features_index is empty).
+        # Fall back to IterativeImputer with ordinal encoding in that case.
+        all_categorical = set(categorical_features_index) >= set(range(len(columns)))
+        if all_categorical:
+            print("All features are categorical. Falling back to IterativeImputer with XGBoost estimator.")
+            enc = OrdinalEncoder(handle_unknown="use_encoded_value", unknown_value=-1)
+            return self._iterative_xgb_impute(df, columns, encoder=enc)
+
         imputer = XGBImputer(
             categorical_features_index=categorical_features_index,
             replace_categorical_values_back=replace_values_back
@@ -588,9 +562,7 @@ class impute_xgb_imputer():
         try:
             if df.dtypes[column_missing] in ["object", "bool"]:
                 print(f"Dataframe head: {df.head()}, with categorical features index: {categorical_features_index}")
-                #df_enc = self._encode_categoricals(df)
                 X = imputer.fit_transform(df.to_numpy())
-                #df = self._decode_categoricals(pd.DataFrame(X))
                 df = pd.DataFrame(X)
             else:
                 df = np.array(df)
@@ -613,9 +585,6 @@ class impute_xgb_imputer():
         for idx in numerical_indices:
             col_name = columns[idx]
             df[col_name] = pd.to_numeric(df[col_name], errors='coerce')
-
-        # for col in df.columns:
-        #     print("Column type after imputation: ", col, " ", df[col].dtype)
                 
         return df
 
@@ -659,7 +628,7 @@ class impute_catboost():
             if len(fully_available_samples) > 1 and len(missing) > 0:
                 imputer.fit(X_train, y_train, cat_features=cat_features)
                 # print(type(df))
-                df.loc[df[missing_column].isnull(), missing_column] = imputer.predict(X_pred)
+                df.loc[df[missing_column].isnull(), missing_column] = imputer.predict(X_pred).flatten()
                 df = pd.DataFrame(df)
                 return df
             
@@ -694,7 +663,7 @@ class impute_catboost():
 
             if len(fully_available_samples) > 1 and len(missing) > 0:
                 imputer.fit(X_train, y_train, cat_features=cat_features)
-                df.loc[df[missing_column].isnull(), missing_column] = imputer.predict(X_pred)
+                df.loc[df[missing_column].isnull(), missing_column] = imputer.predict(X_pred).flatten()
                 df = pd.DataFrame(df)
                 return df
 
@@ -744,30 +713,16 @@ class impute_autoimpute():
     
     '''
     def fit(self, df):
-        # 🛑 FIX: Use a strategy that doesn't use MCMC sampling (PyMC)
-        # 'least_squares' is fast and standard for MICE, but less robust than PMM.
-        # 'stochastic' adds random noise to regression (closer to PMM concept).
-        mice = MiceImputer(
-            return_list=True,
-            strategy='least squares',
-        )
-        
-        df = encoding_categorical_variables(df)
-        # converto boolean columns to float
-        for col in df.select_dtypes(include=["bool"]).columns:
-            df[col] = df[col].astype(float)
-        # Execute imputation
-        mice_generator = mice.fit_transform(df)
-        
-        # Extract the DataFrame from the generator/list output
-        # (Autoimpute's return structure can vary based on return_list=True)
-        try:
-            # Usually returns (imputation_index, dataframe) tuples
-            df_imputed = list(mice_generator)[0][1] 
-        except TypeError:
-            df_imputed = mice_generator
-
-        return pd.DataFrame(df_imputed)
+        # Use sklearn's IterativeImputer (MICE) instead of autoimpute's MiceImputer,
+        # which is incompatible with pandas 3.0 (ambiguous Series truth value in checks.py).
+        df_encoded = encoding_categorical_variables(df.copy())
+        # convert boolean columns to float
+        for col in df_encoded.select_dtypes(include=["bool"]).columns:
+            df_encoded[col] = df_encoded[col].astype(float)
+        # Execute MICE imputation
+        imputer = IterativeImputer(estimator=LinearRegression(), random_state=0)
+        imputed_array = imputer.fit_transform(df_encoded)
+        return pd.DataFrame(imputed_array, columns=df_encoded.columns)
 
 # Both GAIN and VAE work with both types of features
 class impute_gain():
@@ -999,6 +954,11 @@ class impute_mlp():
 
 def impute_missing_column(df, method, missing_column):
     np.random.seed(0)
+    # pandas 3.0+ uses StringDtype for string columns instead of object dtype.
+    # Normalize to object so all dtype checks (e.g. dtype == "object") work correctly.
+    for col in df.columns:
+        if isinstance(df[col].dtype, pd.StringDtype):
+            df[col] = df[col].astype(object)
     imputated_df = pd.DataFrame()
     if method == "no_impute":
         imputator = no_impute()

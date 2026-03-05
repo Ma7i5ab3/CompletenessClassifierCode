@@ -9,5 +9,4 @@ impute_kproto
 impute_xgb_imputer
 impute_catboost
 impute_rfi
-impute_autoimpute
 impute_mlp

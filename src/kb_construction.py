@@ -13,6 +13,7 @@ import warnings
 import time
 import traceback
 import json
+import torch
 warnings.filterwarnings("ignore")
 # set PyTensor flags cxx to an empty string.
 import os
@@ -23,10 +24,10 @@ file_datasets = open("Datasets/dataset_names.txt", "r")
 file_ml_methods = open("Classification/classification_methods.txt", "r")
 
 ## =========== NEW EXPERIMENTS WITH NEW IMPUTATION METHODS ============== ##
-file_imp_methods_num = open("Imputation/methods_numerical_column.txt", "r")
-file_imp_methods_cat = open("Imputation/methods_categorical_column.txt", "r")
-# file_imp_methods_num = open("Imputation/new_methods_numerical_column.txt", "r")
-# file_imp_methods_cat = open("Imputation/new_methods_categorical_column.txt", "r")
+#file_imp_methods_num = open("Imputation/methods_numerical_column.txt", "r")
+#file_imp_methods_cat = open("Imputation/methods_categorical_column.txt", "r")
+file_imp_methods_num = open("Imputation/new_methods_numerical_column.txt", "r")
+file_imp_methods_cat = open("Imputation/new_methods_categorical_column.txt", "r")
 
 datasets = file_datasets.readlines()
  # removing adult dataset for now
@@ -42,9 +43,8 @@ imp_methods_cat = [line.strip('\n\r') for line in imp_methods_cat]
 # this dataframe contains the value of the parameters to train the ml algorithms
 df_hyper = pd.read_csv("Hyperparameter_tuning/hyperparameters.csv")
 
-# done_ds = ['abalone', 'BachChoralHarmony', 'bank', 'cancer', 'car', 'consumer', 'dataset_188_kropt', 'default of credit card clients', 'diabetic', 'drug', 'electricity-normalized', 'fried', 'frogs', 'german']
-done_ds = []
-datasets = [ds for ds in datasets if ds not in done_ds] 
+tobe_done_ds = ['car', 'cancer', 'default of credit card clients', 'fried', 'frogs', 'house', 'iris', 'letter', 'mushrooms', 'mv', 'nursery', 'phoneme', 'ringnorm', 'soybean', 'stars', 'wall-robot-navigation']
+datasets = [ds for ds in datasets if ds in tobe_done_ds] 
 # generate seeds for the different parallel jobs
 def generate_seed(n_seed, n_elements):
     seed = []
@@ -61,6 +61,8 @@ def _procedure_for_pool(args):
     """
     Helper to execute one parallel job and keep track of its original index.
     """
+
+    torch.set_num_threads(1)
     idx, df, dataset, class_name, column, single_seed = args
     return idx, procedure(df, dataset, class_name, column, single_seed)
 
@@ -292,7 +294,7 @@ def main(reduced_df=False):
     print("ML methods: ", ml_methods)
 
     path_datasets = "Datasets/CSV/"
-    new_exp_path = "DeepLearningExps/"
+    new_exp_path = "Full_ImpExp_ML/"
     checkpoint_path = f"{new_exp_path}processed_pairs_checkpoint.json"
     # sempre multipli
     n_instances_tot = 8
@@ -435,13 +437,14 @@ def main(reduced_df=False):
                     f"[at {error_location}]"
                 )
                 errors.append((dataset, column, str(e), error_location))
+                raise
         
     # print errors if any
     if errors:
         with open(f"{new_exp_path}errors_log.txt", "w") as error_file:
             for err in errors:
                 error_file.write(
-                    f"Dataset: {err[0]}, Column: {err[1]}, Error: {err[2]}, Location: {err[3]}\n"
+                    f"Dataset: {err[0]}, Column: {err[1]}, Error: {err[2]}\n"
                 )
         print(f"Errors logged in {new_exp_path}errors_log.txt")
 

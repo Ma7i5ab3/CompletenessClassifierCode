@@ -1,0 +1,93 @@
+{
+  "processed_pairs": {
+    "BachChoralHarmony": [
+      "V1",
+      "V15",
+      "V16",
+      "V2",
+      "V6"
+    ],
+    "abalone": [
+      "'Length'",
+      "'Sex'"
+    ],
+    "bank": [
+      "contact",
+      "duration",
+      "housing",
+      "month",
+      "pdays",
+      "previous"
+    ],
+    "drug": [
+      "Age",
+      "BP",
+      "Cholesterol",
+      "Na_to_K",
+      "Sex"
+    ],
+    "electricity-normalized": [
+      "day",
+      "nswdemand",
+      "nswprice",
+      "vicdemand"
+    ],
+    "german": [
+      "Age",
+      "Checking_account",
+      "Credit_amount",
+      "Duration",
+      "Purpose",
+      "Saving_accounts"
+    ],
+    "mv": [
+      "x3",
+      "x4",
+      "x5",
+      "x6",
+      "x7",
+      "x8"
+    ],
+    "nursery": [
+      "'children'",
+      "'health'",
+      "'parents'"
+    ],
+    "phoneme": [
+      "V1",
+      "V3",
+      "V4"
+    ],
+    "ringnorm": [
+      "V14",
+      "V19",
+      "V9"
+    ],
+    "shuttle": [
+      "A1"
+    ],
+    "soybean": [
+      "fruit-spots",
+      "leaf-mild",
+      "sclerotia"
+    ],
+    "stars": [
+      "A_M",
+      "Color",
+      "L",
+      "R",
+      "Spectral_Class"
+    ],
+    "visualizing_soil": [
+      "easting",
+      "isns",
+      "northing",
+      "resistivity"
+    ],
+    "wall-robot-navigation": [
+      "V1",
+      "V2",
+      "V4"
+    ]
+  }
+}
