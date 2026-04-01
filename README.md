@@ -47,3 +47,128 @@ In the _src_ folder you will find the code for this project. In the following, b
   - **validate_order_suggestions.py**: allows to make experiments to inspect which is the best ordering of application of the imputation methods suggested for a certain dataset. Different percentages of missing values can be injected in each column to see which ordering of imputation methods is the best.
 ## Requirements
 You can find all the libraries used in this project in the requirements.txt
+
+---
+
+## How to Run the Experiments
+
+This section describes how to reproduce the full experimental pipeline presented in the paper, from Knowledge Base enrichment to classifier validation.
+
+### 0. Environment Setup
+
+Requires Python 3.8+. Install all dependencies with:
+
+```bash
+pip install -r requirements.txt
+```
+
+> **Note:** `torch` should be installed separately following the [official PyTorch guide](https://pytorch.org/get-started/locally/) to match your hardware (CPU / CUDA / Apple MPS). The code auto-selects the available device.
+
+---
+
+### 1. Knowledge Base Enrichment (Section 4.1)
+
+This is the most computationally intensive step. It runs experiments on all training datasets, injecting missing values into each selected column, applying all imputation methods, training all downstream classifiers, and recording the F1 scores.
+
+```bash
+cd src
+python kb_construction.py
+```
+
+**What it does:**
+- Loads the 16 training datasets listed in `Datasets/dataset_names.txt`
+- Applies feature selection (univariate tests + correlation pruning) to retain relevant columns
+- For each selected column (numerical and categorical separately):
+  - Injects missing values at 10 different percentages (5% to 50%)
+  - Extracts the column profile (Tables 1 and 2 in the paper)
+  - Applies every available imputation method
+  - Trains each downstream classification algorithm (DT, LR, KNN, RF, AdaBoost, MLP, TabNet) on the imputed data
+  - Records the weighted F1 score for each (imputation method, classification task) pair
+- Runs 8 parallel jobs (one seed each), resuming automatically from a checkpoint if interrupted
+
+**Output:** `src/Full_ImpExp_ML/experiment_{1-8}_{numerical|categorical}.csv`
+**Checkpoint:** `src/Full_ImpExp_ML/processed_pairs_checkpoint.json` — delete this file to restart from scratch.
+
+---
+
+### 2. Aggregate Experiment Results
+
+Combines the 8 parallel output files into a single KB file by averaging column profiles and imputation scores across seeds.
+
+```bash
+cd src/Experiments
+python combine_new_prova.py
+```
+
+**Output:** `src/Experiments/combined_all/numerical_kb_combined.csv` and `categorical_kb_combined.csv`
+
+---
+
+### 3. Train and Validate Binary Classifiers (Section 5.3)
+
+Trains one Random Forest binary classifier per downstream task (14 total: 7 tasks × 2 column types) to predict whether more than four imputation methods are equivalent for a given column profile. Also produces the Partial Dependence Plots (Figures 3 and 4 in the paper).
+
+```bash
+cd src/Experiments
+python binary_classifiers.py
+```
+
+**Output:** classifier performance tables (Tables 5 and 6), PDP figures saved under `results and figures/PDP/`.
+
+---
+
+### 4. Train and Validate Specialized Classifiers (Section 5.4)
+
+Trains and validates the specialized classifiers that recommend the best imputation method given a column profile and a downstream classification task. Also computes SHAP feature importances (Figures 5 and 6).
+
+```bash
+cd src/Classifier
+python specialized_classifiers.py
+```
+
+**What it does:**
+- Filters out knowledge units where more than four methods are equivalent (using the threshold τ = 0.5%, or 0.2% for numerical binary classifiers)
+- Trains Random Forest / SVC classifiers using column-wise cross-validation
+- Tunes hyperparameters for each (task, column type) pair
+- Computes SHAP summary and swarm plots
+
+**Output:**
+- Trained models: `src/Classifier/classifiers/classifier_{task}_{num|cat}.joblib`
+- Scalers and feature masks: `src/Classifier/classifiers/scaler_*.joblib`, `features_*.joblib`
+- SHAP plots: `results and figures/shap/{num|cat}/{task}.png`
+- Performance tables (Tables 7 and 8 in the paper)
+
+---
+
+### 5. Validate on Unseen Datasets (Section 5.5)
+
+Runs the full validation pipeline on the four held-out datasets (*wine*, *student performance*, *consumer electronic sales*, *visualizing_galaxy*), comparing the classifier-recommended imputation methods against all possible combinations (Q2 and Q3 baselines).
+
+```bash
+cd src
+python classifiers_validation.py
+```
+
+**What it does:**
+- Extracts the 4 most important columns per dataset (2 numerical + 2 categorical where applicable)
+- Injects 20% missing values
+- Queries the trained classifiers for recommended imputation methods
+- Applies them using both Approach A1 (independent) and Approach A2 (sequential, best order)
+- Evaluates against all possible imputation combinations
+
+**Output:** results and figures saved in `src/Classifier_Validation/{dataset_name}/` (Tables 9–12 in the paper).
+
+---
+
+### 6. Ordering Analysis (Section 5.6)
+
+Investigates the effect of the order in which the suggested imputation methods are applied across columns (A2 approach). Tries all permutations of 4 suggested methods over 50 different seeds.
+
+```bash
+cd src/Classifier_Validation
+python validate_order_suggestions.py
+```
+
+**Output:** order ranking results in `results and figures/validation/order analysis results/`.
+
+---
