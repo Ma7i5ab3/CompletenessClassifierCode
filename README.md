@@ -1,6 +1,6 @@
 # CompletenessClassifier (Source Code)
 ## Results and Figures
-In the _results and figures_ folder you will find the relevant results and figures discussed in the paper.
+In the _results and figures_ folder you will find the relevant recent results and figures in '/new' directory.
 
 ## Scripts
 In the _src_ folder you will find the code for this project. In the following, brief descriptions of the most relevant scripts and folders are provided.
@@ -66,7 +66,7 @@ pip install -r requirements.txt
 
 ---
 
-### 1. Knowledge Base Enrichment (Section 4.1)
+### 1. Knowledge Base Enrichment
 
 This is the most computationally intensive step. It runs experiments on all training datasets, injecting missing values into each selected column, applying all imputation methods, training all downstream classifiers, and recording the F1 scores.
 
@@ -104,7 +104,7 @@ python combine_new_prova.py
 
 ---
 
-### 3. Train and Validate Binary Classifiers (Section 5.3)
+### 3. Train and Validate Binary Classifiers
 
 Trains one Random Forest binary classifier per downstream task (14 total: 7 tasks × 2 column types) to predict whether more than four imputation methods are equivalent for a given column profile. Also produces the Partial Dependence Plots (Figures 3 and 4 in the paper).
 
