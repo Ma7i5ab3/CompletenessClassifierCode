@@ -10,7 +10,7 @@ import shap
 from joblib import dump
 import os
 
-ml_methods = ["DecisionTree", "LogisticRegression", "KNN", "RandomForest", "AdaBoost", "SVC", "MLP", "TabNet"]
+ml_methods = ["DecisionTree", "LogisticRegression", "KNN", "RandomForest", "AdaBoost", "SVC"] # "MLP", "TabNet"
 file_imp_methods_num = open("../Imputation/methods_numerical_column.txt", "r")
 file_imp_methods_cat = open("../Imputation/methods_categorical_column.txt", "r")
 imp_methods_num = file_imp_methods_num.readlines()
@@ -321,22 +321,21 @@ def tune_rf(max_iter=100, is_num=True):
             params.append(random.choice(random_grid[key]))
         print(params)
         for i, ml_method in enumerate(ml_methods):
-            if ml_method in ['MLP', 'TabNet']:
-                clf = RandomForestClassifier(n_estimators=params[0],
-                                            max_features=params[1],
-                                            max_depth=params[2],
-                                            min_samples_split=params[3],
-                                            min_samples_leaf=params[4],
-                                            bootstrap=params[5],
-                                            criterion=params[6],
-                                            random_state=0)
+            clf = RandomForestClassifier(n_estimators=params[0],
+                                        max_features=params[1],
+                                        max_depth=params[2],
+                                        min_samples_split=params[3],
+                                        min_samples_leaf=params[4],
+                                        bootstrap=params[5],
+                                        criterion=params[6],
+                                        random_state=0)
 
-                acc = classifier(clf, is_num=is_num, ml_method=ml_method, is_shap=False)
-                # print(ml_method + ": " + str(acc))
-                if max_acc[i] < acc:
-                    max_acc[i] = acc
-                    print(f"I changed params for {ml_method}, new accuracy is: " + str(round(acc,4)))
-                    best_params[i] = params.copy()
+            acc = classifier(clf, is_num=is_num, ml_method=ml_method, is_shap=False)
+            # print(ml_method + ": " + str(acc))
+            if max_acc[i] < acc:
+                max_acc[i] = acc
+                print(f"I changed params for {ml_method}, new accuracy is: " + str(round(acc,4)))
+                best_params[i] = params.copy()
 
     for i in range(max_acc.shape[0]):
         print(f"ALGORITHM {i}: ")
@@ -362,19 +361,18 @@ def tune_svc(max_iter=100, is_num=True):
             params.append(random.choice(random_grid[key]))
         print(params)
         for i, ml_method in enumerate(ml_methods):
-            if ml_method in ['MLP', 'TabNet']: #TODO: delete
-                clf = SVC(C=params[0],
-                        gamma=params[1],
-                        kernel=params[2])
+            clf = SVC(C=params[0],
+                    gamma=params[1],
+                    kernel=params[2])
 
-                acc = classifier(clf, is_num=is_num, ml_method=ml_method)
-                # print(ml_method + ": " + str(acc))
-                if max_acc[i] < acc:
-                    max_acc[i] = acc
-                    print(
-                        f"I changed params for {ml_method}, new accuracy is: " + str(
-                            round(acc, 4)))
-                    best_params[i] = params.copy()
+            acc = classifier(clf, is_num=is_num, ml_method=ml_method)
+            # print(ml_method + ": " + str(acc))
+            if max_acc[i] < acc:
+                max_acc[i] = acc
+                print(
+                    f"I changed params for {ml_method}, new accuracy is: " + str(
+                        round(acc, 4)))
+                best_params[i] = params.copy()
 
     for i in range(max_acc.shape[0]):
         print(f"ALGORITHM {i}: ")
@@ -392,7 +390,7 @@ def get_model(ml_method, is_num):
     # parameters of the models are retrieved from the tuning (tune_rf and tune_svc)
     if is_num:
         if ml_method == "DecisionTree":
-            params = [13.959697969796977, 0.05, 'rbf']
+            params = [np.float64(9.321466046604659), 0.05, 'rbf']
             clf = SVC(C=params[0],
                       gamma=params[1],
                       kernel=params[2],
@@ -400,7 +398,7 @@ def get_model(ml_method, is_num):
                       random_state=0)
 
         elif ml_method == "LogisticRegression":
-            params = [4.365218221822182, 'scale', 'rbf']
+            params = [np.float64(7.78138903890389), 'scale', 'rbf']
             clf = SVC(C=params[0],
                       gamma=params[1],
                       kernel=params[2],
@@ -408,7 +406,7 @@ def get_model(ml_method, is_num):
                       random_state=0)
 
         elif ml_method == "KNN":
-            params = [40, 'sqrt', 120, 2, 2, True, 'log_loss']
+            params = [20, 'sqrt', 20, 15, 1, True, 'gini']
             clf = RandomForestClassifier(n_estimators=params[0],
                                          max_features=params[1],
                                          max_depth=params[2],
@@ -419,7 +417,7 @@ def get_model(ml_method, is_num):
                                          random_state=0)
 
         elif ml_method == "RandomForest":
-            params = [7.153357635763576, 0.05, 'rbf']
+            params = [np.float64(13.84169206920692), 0.1, 'rbf']
             clf = SVC(C=params[0],
                       gamma=params[1],
                       kernel=params[2],
@@ -448,8 +446,16 @@ def get_model(ml_method, is_num):
                                          criterion=params[6],
                                          random_state=0)
 
-        else:  # AdaBoost, SVC
-            params = [165, 'log2', 40, 2, 1, False, 'gini']
+        elif ml_method == "AdaBoost":  # AdaBoost
+            params = [np.float64(0.175008700870087), 5, 'rbf']
+            clf = SVC(C=params[0],
+                      gamma=params[1],
+                      kernel=params[2],
+                      probability=True,
+                      random_state=0)
+            
+        else: #SVC
+            params = [150, 'sqrt', 20, 2, 2, True, 'gini']
             clf = RandomForestClassifier(n_estimators=params[0],
                                          max_features=params[1],
                                          max_depth=params[2],
@@ -461,7 +467,7 @@ def get_model(ml_method, is_num):
 
     else:
         if ml_method == "DecisionTree":
-            params = [1.9930996099609959, 0.5, 'rbf']
+            params = [np.float64(9.105455245524551), 'auto', 'rbf']
             clf = SVC(C=params[0],
                       gamma=params[1],
                       kernel=params[2],
@@ -469,15 +475,18 @@ def get_model(ml_method, is_num):
                       random_state=0)
 
         elif ml_method == "LogisticRegression":
-            params = [3.4531726172617256, 0.01, 'rbf']
-            clf = SVC(C=params[0],
-                      gamma=params[1],
-                      kernel=params[2],
-                      probability=True,
-                      random_state=0)
+            params = [20, 'log2', 30, 15, 4, True, 'entropy']
+            clf = RandomForestClassifier(n_estimators=params[0],
+                                         max_features=params[1],
+                                         max_depth=params[2],
+                                         min_samples_split=params[3],
+                                         min_samples_leaf=params[4],
+                                         bootstrap=params[5],
+                                         criterion=params[6],
+                                         random_state=0)
 
         elif ml_method == "KNN":
-            params = [40, 'sqrt', 120, 2, 2, True, 'log_loss']
+            params = [65, 'sqrt', 30, 10, 1, False, 'entropy']
             clf = RandomForestClassifier(n_estimators=params[0],
                                          max_features=params[1],
                                          max_depth=params[2],
@@ -488,7 +497,7 @@ def get_model(ml_method, is_num):
                                          random_state=0)
 
         elif ml_method == "RandomForest":
-            params = [120, 'sqrt', 50, 10, 4, False, 'gini']
+            params = [95, 'log2', 180, 2, 4, False, 'gini']
             clf = RandomForestClassifier(n_estimators=params[0],
                                          max_features=params[1],
                                          max_depth=params[2],
@@ -522,14 +531,23 @@ def get_model(ml_method, is_num):
                                          criterion=params[6],
                                          random_state=0)
 
-        else:
-            # That is for SVC and Adaboost
-            params = [2.6511325132513246, 0.001, 'rbf']
+        elif ml_method == "AdaBoost":  # AdaBoost
+            params = [np.float64(15.76578827882788), 0.0001, 'rbf']
             clf = SVC(C=params[0],
                       gamma=params[1],
                       kernel=params[2],
                       probability=True,
                       random_state=0)
+            
+            
+        else: #SVC
+            params = [np.float64(1.8890944094409439), 0.001, 'rbf']
+            clf = SVC(C=params[0],
+                      gamma=params[1],
+                      kernel=params[2],
+                      probability=True,
+                      random_state=0)
+            
 
     return clf
 
@@ -540,9 +558,8 @@ def inspect_shap(is_num):
     :return:
     """
     for ml_method in ml_methods:
-        if ml_method in ['MLP', 'TabNet']:
-            clf = get_model(ml_method, is_num)
-            classifier(clf, is_num, ml_method, is_shap=True)
+        clf = get_model(ml_method, is_num)
+        classifier(clf, is_num, ml_method, is_shap=True)
 
 
 def train_classifiers_whole_dataset_num():
@@ -551,56 +568,55 @@ def train_classifiers_whole_dataset_num():
     to be used for their validation on untrained dataset
     """
     for ml_method in ml_methods:
-        if ml_method in ['MLP', 'TabNet']:
-            clf = get_model(ml_method, True)
-            df = pd.read_csv(
-                "../Experiments/combined_all/numerical_kb_combined.csv", converters={'best_methods': convert_to_list})
-            df = df[df["ml_algorithm"] == ml_method]
-            df = filter_equivalency(df, max_imp_methods=4)
+        clf = get_model(ml_method, True)
+        df = pd.read_csv(
+            "../Experiments/combined_all/numerical_kb_combined.csv", converters={'best_methods': convert_to_list})
+        df = df[df["ml_algorithm"] == ml_method]
+        df = filter_equivalency(df, max_imp_methods=4)
 
-            mask = np.zeros(len(list(df.columns)) - 4)
-            full_profile = list(df.columns)
-            full_profile.remove("name")
-            full_profile.remove("column_name")
-            full_profile.remove("best_methods")
-            full_profile.remove("ml_algorithm")
+        mask = np.zeros(len(list(df.columns)) - 4)
+        full_profile = list(df.columns)
+        full_profile.remove("name")
+        full_profile.remove("column_name")
+        full_profile.remove("best_methods")
+        full_profile.remove("ml_algorithm")
 
-            threshold = 0.8
-            corr = df.corr(numeric_only=True)
-            upper = corr.where(np.triu(np.ones(corr.shape), k=1).astype(bool))
-            to_drop = [column for column in upper.columns if
-                    any(upper[column] > threshold)]
-            df.drop(columns=to_drop, inplace=True)
+        threshold = 0.8
+        corr = df.corr(numeric_only=True)
+        upper = corr.where(np.triu(np.ones(corr.shape), k=1).astype(bool))
+        to_drop = [column for column in upper.columns if
+                any(upper[column] > threshold)]
+        df.drop(columns=to_drop, inplace=True)
 
-            df = df.fillna(0)
+        df = df.fillna(0)
 
-            class_name = "best_methods"
-            feature_cols = list(df.columns)
-            feature_cols.remove("name")
-            feature_cols.remove("column_name")
-            feature_cols.remove("best_methods")
-            feature_cols.remove("ml_algorithm")
+        class_name = "best_methods"
+        feature_cols = list(df.columns)
+        feature_cols.remove("name")
+        feature_cols.remove("column_name")
+        feature_cols.remove("best_methods")
+        feature_cols.remove("ml_algorithm")
 
-            for i in range(len(full_profile)):
-                if full_profile[i] in feature_cols:
-                    mask[i] = 1
+        for i in range(len(full_profile)):
+            if full_profile[i] in feature_cols:
+                mask[i] = 1
 
-            x = df[feature_cols]
-            best_methods_train = df[class_name]
+        x = df[feature_cols]
+        best_methods_train = df[class_name]
 
-            y = []
-            for i in range(len(best_methods_train)):
-                y.append(best_methods_train[i][0])
+        y = []
+        for i in range(len(best_methods_train)):
+            y.append(best_methods_train[i][0])
 
-            scaler = RobustScaler()
-            x = scaler.fit_transform(x)
+        scaler = RobustScaler()
+        x = scaler.fit_transform(x)
 
-            clf.fit(x, y)
+        clf.fit(x, y)
 
-            dump(clf, f'classifiers/classifier_{ml_method}_num.joblib')
-            dump(scaler, f'classifiers/scaler_{ml_method}_num.joblib')
-            dump(mask, filename=f"classifiers/features_{ml_method}_num.joblib")
-            print(f"done {ml_method} num")
+        dump(clf, f'classifiers/classifier_{ml_method}_num.joblib')
+        dump(scaler, f'classifiers/scaler_{ml_method}_num.joblib')
+        dump(mask, filename=f"classifiers/features_{ml_method}_num.joblib")
+        print(f"done {ml_method} num")
 
 
 def train_classifiers_whole_dataset_cat():
@@ -609,55 +625,54 @@ def train_classifiers_whole_dataset_cat():
     to be used for their validation on untrained dataset
     """
     for ml_method in ml_methods:
-        if ml_method in ['MLP', 'TabNet']:
-            clf = get_model(ml_method, False)
-            df = pd.read_csv(
-                "../Experiments/combined_all/categorical_kb_combined.csv", converters={'best_methods': convert_to_list})
-            df = df[df["ml_method"] == ml_method]
-            df = filter_equivalency(df, max_imp_methods=4)
+        clf = get_model(ml_method, False)
+        df = pd.read_csv(
+            "../Experiments/combined_all/categorical_kb_combined.csv", converters={'best_methods': convert_to_list})
+        df = df[df["ml_method"] == ml_method]
+        df = filter_equivalency(df, max_imp_methods=4)
 
-            mask = np.zeros(len(list(df.columns))-4)
-            full_profile = list(df.columns)
-            full_profile.remove("name")
-            full_profile.remove("column_name")
-            full_profile.remove("best_methods")
-            full_profile.remove("ml_method")
+        mask = np.zeros(len(list(df.columns))-4)
+        full_profile = list(df.columns)
+        full_profile.remove("name")
+        full_profile.remove("column_name")
+        full_profile.remove("best_methods")
+        full_profile.remove("ml_method")
 
-            threshold = 0.8
-            corr = df.corr(numeric_only=True)
-            upper = corr.where(np.triu(np.ones(corr.shape), k=1).astype(bool))
-            to_drop = [column for column in upper.columns if any(upper[column] > threshold)]
-            df.drop(columns=to_drop, inplace=True)
+        threshold = 0.8
+        corr = df.corr(numeric_only=True)
+        upper = corr.where(np.triu(np.ones(corr.shape), k=1).astype(bool))
+        to_drop = [column for column in upper.columns if any(upper[column] > threshold)]
+        df.drop(columns=to_drop, inplace=True)
 
-            df = df.fillna(0)
+        df = df.fillna(0)
 
-            class_name = "best_methods"
-            feature_cols = list(df.columns)
-            feature_cols.remove("name")
-            feature_cols.remove("column_name")
-            feature_cols.remove("best_methods")
-            feature_cols.remove("ml_method")
+        class_name = "best_methods"
+        feature_cols = list(df.columns)
+        feature_cols.remove("name")
+        feature_cols.remove("column_name")
+        feature_cols.remove("best_methods")
+        feature_cols.remove("ml_method")
 
-            for i in range(len(full_profile)):
-                if full_profile[i] in feature_cols:
-                    mask[i] = 1
+        for i in range(len(full_profile)):
+            if full_profile[i] in feature_cols:
+                mask[i] = 1
 
-            x = df[feature_cols]
-            best_methods_train = df[class_name]
+        x = df[feature_cols]
+        best_methods_train = df[class_name]
 
-            y = []
-            for i in range(len(best_methods_train)):
-                y.append(best_methods_train[i][0])
+        y = []
+        for i in range(len(best_methods_train)):
+            y.append(best_methods_train[i][0])
 
-            scaler = RobustScaler()
-            x = scaler.fit_transform(x)
+        scaler = RobustScaler()
+        x = scaler.fit_transform(x)
 
-            clf.fit(x, y)
+        clf.fit(x, y)
 
-            dump(clf, f'classifiers/classifier_{ml_method}_cat.joblib')
-            dump(scaler, f'classifiers/scaler_{ml_method}_cat.joblib')
-            dump(mask, filename=f"classifiers/features_{ml_method}_cat.joblib")
-            print(f"done {ml_method} cat")
+        dump(clf, f'classifiers/classifier_{ml_method}_cat.joblib')
+        dump(scaler, f'classifiers/scaler_{ml_method}_cat.joblib')
+        dump(mask, filename=f"classifiers/features_{ml_method}_cat.joblib")
+        print(f"done {ml_method} cat")
 
 
 if __name__ == "__main__":
@@ -666,10 +681,10 @@ if __name__ == "__main__":
     '''tune_rf(is_num=True)
     tune_rf(is_num=False)
     tune_svc(is_num=True)
-    tune_svc(is_num=False)'''
-
+    tune_svc(is_num=False)
+'''
     # model + baseline computation
-    '''for ml_method_main in ml_methods:
+    for ml_method_main in ml_methods:
         model_num_list = []
         model_cat_list = []
         bs1_num_list = []
@@ -689,13 +704,15 @@ if __name__ == "__main__":
         print("BS1 (random) num: ", round(np.mean(bs1_num_list), 5))
         print("BS1 (random) cat: ", round(np.mean(bs1_cat_list), 5))
         print("BS2 (zeroR)  num: ", round(np.mean(bs2_num_list), 5))
-        print("BS2 (zeroR)  cat: ", round(np.mean(bs2_cat_list), 5))'''
+        print("BS2 (zeroR)  cat: ", round(np.mean(bs2_cat_list), 5))
+
 
     # feature importance inspection
-    inspect_shap(is_num=True)
+    '''inspect_shap(is_num=True)
     inspect_shap(is_num=False)
     bar_plots(is_num=True)
-    bar_plots(is_num=False)
+    bar_plots(is_num=False)'''
 
     train_classifiers_whole_dataset_num()
     train_classifiers_whole_dataset_cat()
+

@@ -290,7 +290,7 @@ def analyze_list(f1_clean, f1_sugg_no_order, f1_sugg_order, f1_sugg_mean, ml_met
     plt.xlabel("f1 score")
     plt.ylabel("number of combinations")
     plt.savefig(f"Classifier_Validation/{ds_name}/{ml_method}")
-    plt.show()
+    plt.close()
 
     task_abbrev = {
         "DecisionTree": "DT", "LogisticRegression": "LR", "KNN": "KNN",
@@ -298,15 +298,16 @@ def analyze_list(f1_clean, f1_sugg_no_order, f1_sugg_order, f1_sugg_mean, ml_met
     }
     task = task_abbrev.get(ml_method, ml_method)
 
-    # labeled summary for easy reading
-    print(f"\n--- [{ds_name}] {ml_method} ---")
-    print(f"  clean={round(f1_clean,4):.4f} | Q2={round(median,4):.4f} | Q3={round(quant_75,4):.4f} "
-          f"| A1={round(f1_sugg_no_order,4):.4f} | A2={round(f1_sugg_order,4):.4f} | A2avg={round(f1_sugg_mean,4):.4f}")
-
-    # LaTeX table row — copy-paste directly into the paper
-    '''print(f"  LaTeX: {task:<8} & {round(f1_clean,4):.4f} & {round(median,4):.4f} "
-          f"& {round(quant_75,4):.4f} & {round(f1_sugg_no_order,4):.4f} "
-          f"& {round(f1_sugg_order,4):.4f} & {round(f1_sugg_mean,4):.4f} \\\\ \\hline")'''
+    return {
+        "dataset": ds_name,
+        "method": ml_method,
+        "clean": round(f1_clean, 4),
+        "Q2": round(median, 4),
+        "Q3": round(quant_75, 4),
+        "A1": round(f1_sugg_no_order, 4),
+        "A2": round(f1_sugg_order, 4),
+        "A2avg": round(f1_sugg_mean, 4),
+    }
 
 
 if __name__ == "__main__":
@@ -315,16 +316,17 @@ if __name__ == "__main__":
                else "cpu")
     print(f"PyTorch device: {_device}")
 
-    ml_methods = ["DecisionTree", "LogisticRegression", "KNN", "RandomForest", "AdaBoost",
-                  "MLP", "TabNet"]
+    ml_methods = ["DecisionTree", "LogisticRegression", "KNN", "RandomForest", "AdaBoost"] # "MLP", "TabNet"
     deep_methods = {"MLP", "TabNet"}  # combinations computed only for these two
 
     datasets_config = [
-        #("visualizing_galaxy", "binaryClass",    4, None),
-        #("wine",               "Wine",           4, None),
+        ("visualizing_galaxy", "binaryClass",    4, None),
+        ("wine",               "Wine",           4, None),
         ("consumer",           "PurchaseIntent", 2, None),
         ("student",            "GradeClass",     2, "StudentID"),
     ]
+
+    all_results = []
 
     for name_main, target_main, cols_to_select, col_to_drop in datasets_config:
         print(f"\n=== Dataset: {name_main} ===")
@@ -342,12 +344,29 @@ if __name__ == "__main__":
         print(np.array(selector.get_feature_names_out())[np.argsort(selector.scores_)][::-1])
 
         for ml_method_main in ml_methods:
-            if ml_method_main in ["MLP", "TabNet"]:
-                print(ml_method_main)
-                compute = ml_method_main in deep_methods
-                f1_clean_main, f1_sugg_no_order_main, f1_sugg_order_main, \
-                    f1_sugg_mean_main, suggested_methods = validate_classifiers(
-                        df_main, ml_method_main, name_main, target_main,
-                        cols_to_select=cols_to_select, compute=compute)
-                analyze_list(f1_clean_main, f1_sugg_no_order_main, f1_sugg_order_main,
-                            f1_sugg_mean_main, ml_method_main, name_main)
+            print(ml_method_main)
+            compute = ml_method_main in deep_methods
+            f1_clean_main, f1_sugg_no_order_main, f1_sugg_order_main, \
+                f1_sugg_mean_main, suggested_methods = validate_classifiers(
+                    df_main, ml_method_main, name_main, target_main,
+                    cols_to_select=cols_to_select, compute=compute)
+            row = analyze_list(f1_clean_main, f1_sugg_no_order_main, f1_sugg_order_main,
+                               f1_sugg_mean_main, ml_method_main, name_main)
+            all_results.append(row)
+
+    # ── Final summary ──────────────────────────────────────────────────────────
+    print("\n" + "=" * 80)
+    print("SUMMARY OF ALL RESULTS")
+    print("=" * 80)
+    header = f"{'Dataset':<22} {'Method':<20} {'Clean':>7} {'Q2':>7} {'Q3':>7} {'A1':>7} {'A2':>7} {'A2avg':>7}"
+    print(header)
+    print("-" * 80)
+    current_ds = None
+    for r in all_results:
+        if r["dataset"] != current_ds:
+            if current_ds is not None:
+                print()
+            current_ds = r["dataset"]
+        print(f"{r['dataset']:<22} {r['method']:<20} {r['clean']:>7.4f} {r['Q2']:>7.4f} "
+              f"{r['Q3']:>7.4f} {r['A1']:>7.4f} {r['A2']:>7.4f} {r['A2avg']:>7.4f}")
+    print("=" * 80)

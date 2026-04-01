@@ -304,10 +304,10 @@ def pdp(is_num=True):
 
         else:
             if model == 0:
-                params = [12, 'log2', 30, 5, 2, False]
+                params = [5, 'log2', 10, 2, 4, True] # [12, 'log2', 30, 5, 2, False]
                 df_ml_algorithm = final_df[final_df["ml_method"] == "DecisionTree"]
             elif model == 1:
-                params = [12, 'log2', 110, 5, 4, False]
+                params = [12, 'sqrt', 90, 5, 2, True] # [12, 'log2', 110, 5, 4, False]
                 df_ml_algorithm = final_df[final_df["ml_method"] == "LogisticRegression"]
             elif model == 2:
                 params = [292, 'log2', 40, 10, 1, True]
@@ -398,8 +398,8 @@ def plot_cat(clf, ml_models, model, df_train, ax, colors):
 
 if __name__ == "__main__":
     # tuning the binary classifiers
-    #tune_binary_classifier()
-    # tune_binary_classifier(is_num=False)
+    #tune_binary_classifier(is_num=False)
+    #tune_binary_classifier(is_num=True)
 
     # for baseline computation
     binary_classifier(clf=RandomForestClassifier(), is_num=False)

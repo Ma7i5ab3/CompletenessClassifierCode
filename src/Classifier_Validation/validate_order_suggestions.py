@@ -145,7 +145,7 @@ def find_list_index(list_of_lists, target_list):
 if __name__ == "__main__":
     name_list = ["wine", "visualizing_galaxy", "student", "consumer"]
     target_list = ["Wine", "binaryClass", "GradeClass", "PurchaseIntent"]
-    ml_methods = ["DecisionTree", "LogisticRegression", "KNN", "RandomForest", "AdaBoost"]
+    ml_methods = ["DecisionTree", "LogisticRegression", "KNN", "RandomForest", "AdaBoost", "MLP", "TabNet"]
     for i, name in enumerate(name_list):
         print(name)
         target = target_list[i]
